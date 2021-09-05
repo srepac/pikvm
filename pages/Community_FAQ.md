@@ -159,7 +159,6 @@ Directions:
 kvmd:
     streamer:
         forever: true
-        cmd_append: [--slowdown]                    # for usb-hdmi only so that target PC display works w/o rebooting
         ### this section is for use with webrtc/h.264 -- up to resolution: line
         h264_bitrate:
             default: 5000
@@ -168,6 +167,7 @@ kvmd:
             - "--h264-sink-mode=0660"
             - "--h264-bitrate={h264_bitrate}"
             - "--h264-gop={h264_gop}"
+            - "--slowdown"                          # for usb-hdmi only so that target PC display works w/o rebooting
         ### Optional
         #resolution:
         #    default: 1280x720                       # default resolution I use in webui - usb-hdmi only
