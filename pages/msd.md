@@ -12,10 +12,10 @@ The switch affects the settings of the future connection. For non-V3 devices, yo
 # Disable MSD
 To disable mass storage emulation altogether, you can place the following piece of configuration into /etc/kvmd/override.yaml 
 ``` yaml
-    kvmd:
-        msd:
-            type:  disabled
-``` 
+kvmd:
+    msd:
+        type:  disabled
+```
 
 # Upload images manually (without Web UI)
 1. Remount internal storage to rw (read-write):
@@ -59,24 +59,25 @@ How to enable extra drives:
 3. Reboot.
 
 How to create RW flash drive:
-1. Switch the root filesystem to `rw` mode:
+1. Switch the MSD filesystem to rw mode:
     ```
-    # rw
+    # kvmd-helper-otgmsd-remount rw
     ```
-2. Create the empty image file of the desire size (1Gb in this example).
+2. Create the empty image file of the desired size (8GB in this example).
     ```
-    # dd if=/dev/zero of=/root/flash.img bs=1M count=1000 status=progress
+    # dd if=/dev/zero of=/var/lib/kvmd/msd/images/flash.img bs=8M count=1000 status=progress
+    # touch /var/lib/kvmd/msd/meta/flash.img.complete
     ```
 3. Connect it to the drive 1:
     ```
-    # kvmd-otgmsd -i 1 --set-rw=1 --set-cdrom=0 --set-image=/root/flash.img
+    # kvmd-otgmsd -i 1 --set-rw=1 --set-cdrom=0 --set-image=/var/lib/kvmd/msd/images/flash.img
     ```
     After that you will have access to the flash drive from the server.  
     :exclamation: Drive 0 represents a drive that is controlled via a web interface and API. Don't use it with kvmd-otgmsd if you don't know exactly what you're doing.
 4. View the driver state:
     ```
     # kvmd-otgmsd -i 1
-    Image file:  /root/flash.img
+    Image file:  /var/lib/kvmd/msd/images/flash.img
     CD-ROM flag: no
     RW flag:     yes
 5. To disable the flash drive and view the files on it from the KVM, run:
@@ -84,12 +85,14 @@ How to create RW flash drive:
     # kvmd-otgmsd -i 1 --unlock --eject
     ```
     :exclamation: This command will interrupt the current IO operation on **ALL DRIVES** including the one that is managed via the web interface. The same result is achieved by clicking the disable media button in the web interface. Right now, the Linux kernel does not allow to distinguish between internal threads that manage different drives. It is recommended to eject the media when you know that this will not cause problems for the other media.
-6. Don't forget to remount the root filesystem to read-only mode:
+6. Don't forget to remount the MSD filesystem to read-only mode:
     ```
-    # ro
+    # kvmd-helper-otgmsd-remount ro
     ```
 7. You can download the resulting image via SCP or mount it as a loop device on the Pi-KVM.
 
+8. You can also mount the flash.img via MSD webui as :exclamation: Read-only 
+ 
 # Create a Microsoft Windows based Flash disk image
 This procedure will create a disk image of a USB stick. This is mostly required for Microsoft Windows (TM) based images since they are larger than the CDROM based limit of 2.2GB.
 You can create a bootable USB stick with the normal Microsoft tools, e.g. Media Creation Tool.
