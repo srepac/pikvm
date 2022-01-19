@@ -53,7 +53,7 @@ How to enable extra drives:
                 count: 1  # +1 drive, default value
                 default:  # Default configuration for the all extra drives
                     cdrom: false  # Default value (false for the generic flash drive)
-                    rw: false # Read-only by default
+                    rw: true # Read-only by default
     ```
     If you specify `count: N`, you will create `N` additional drives configured the same way, as described in the `default` section.
 3. Reboot.
