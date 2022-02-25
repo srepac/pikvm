@@ -13,8 +13,8 @@
 '
 # NOTE:  This was tested on a new install of raspbian desktop and lite versions, but should also work on an existing install.
 #
-# Last change 20220225 0600 PDT
-VER=3.4.3
+# Last change 20220225 0740 PDT
+VER=3.4.4
 #
 # Changelog:
 # 1.0   from August 2021
@@ -37,12 +37,24 @@ VER=3.4.3
 # 3.4.1 02/24/22 - if /usr/bin/janus already exists from previous install, do not extract janus package from REPO
 # 3.4.2 02/24/22 - additional check that /usr/bin/janus runs properly, otherwise replace it with janus REPO package
 # 3.4.3 02/25/22 - add kvmd user to dialout group -- required for xh_hk4401 support per @bobiverse
+# 3.4.4 02/25/22 - check to make sure python 3.7 or 3.9 are installed; gracefully exit otherwise
 
 set +x
 export PIKVMREPO="https://kvmnerds.com/REPO"
 export KVMDCACHE="/var/cache/kvmd"
 export PKGINFO="${KVMDCACHE}/packages.txt"
 export LOGFILE="${KVMDCACHE}/installer-$(date +%Y%m%d-%H:%M:%S).log"
+
+### 02/25/2022 -- script does not work on raspbian with python 3.10 and higher or 3.6 and lower
+PYTHONVER=$( python -V | awk '{print $2}' | cut -d'.' -f1,2 )
+case $PYTHONVER in
+  "3.5"|"3.6"|"3.10"|"3.11"|"3.12")
+    printf "\nYou are running python ${PYTHONVER}.  Installer (kvmd 3.47) only works with python 3.7 -OR- 3.9.\n"
+    exit 1
+    ;;
+  "3.7"|"3.9")
+    ;;
+esac
 
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
   echo "usage:  $0 [-f]   where -f will force re-install new pikvm platform"
@@ -662,7 +674,7 @@ else
 fi
 
 # Fix paste-as-keys and disable ATX if running python 3.7
-if [[ $( python -V | awk '{print $2}' | cut -d'.' -f1,2 ) == "3.7" ]]; then
+if [[ "${PYTHONVER}" == "3.7" ]]; then
   sed -i -e 's/reversed//g' /usr/lib/python3.9/site-packages/kvmd/keyboard/printer.py
 
   sed -i -e 's/    msd:$/    atx:\n        type: disabled\n    msd:/g' /etc/kvmd/override.yaml
