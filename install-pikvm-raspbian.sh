@@ -406,8 +406,7 @@ install-dependencies() {
   echo "-> Installing dependencies for pikvm"
 
   apt-get update > /dev/null
-  for i in $( echo "nginx python3 net-tools bc expect v4l-utils iptables vim dos2unix
-screen tmate nfs-common gpiod ffmpeg dialog iptables dnsmasq git" )
+  for i in nginx python3 net-tools bc expect v4l-utils iptables vim dos2unix screen tmate nfs-common gpiod ffmpeg dialog iptables dnsmasq git
   do
     echo "apt-get install -y $i"
     apt-get install -y $i > /dev/null
