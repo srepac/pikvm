@@ -1,0 +1,170 @@
+#!/bin/bash
+# Created by srepac@kvmnerds.com
+#
+# Filename:  hotspot    for Arch PiKVM
+VER=1.2
+## CHANGELOG:
+# 1.0   03/02/22    Created
+# 1.1   03/03/22    Added ability to always run services at boot (also otgnet network DHCP entry for dnsmasq)
+# 1.2   03/04/22    Add ap0 interface on top of wlan0 for use as hotspot AP
+#
+# This script was written to allow PiKVM to run its wifi as hotspot AP akin to how GoPro is first configured
+#
+#   SSID:         pikvm-AP
+#   Passphrase:   pikvmisawesome
+#
+#   Hotspot network IP 192.168.4.1/24   DHCP range 192.168.4.10 - 192.168.4.250
+###
+# Change SSID and passphrase here
+SSID="pikvm-AP"
+PASSPHRASE='pikvmisawesome'
+###
+: '
+Before running this script, you should connect your wifi to SSID first, and then run this script creating ap0
+... that acts like a wifi hotspot that other systems can connect to.
+
+In addition, if the pi eth0/wlan0 is connected to internet, the systems connected to the wifi
+... hotspot will also have internet access.
+' ### end of comments ###
+
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+  echo "usage:  $0 [-f] where -f forces hotspot to run at boot; default is to run on this session only"
+  exit 1
+fi
+
+set -x
+
+rw
+
+# Install required packages if not already installed
+if [ $( pacman -Q | grep -wc hostapd ) -ne 1 ]; then
+  # first, update db's
+  pacman -Syy
+  # then, install hostpad and dnsmasq packages
+  pacman --noconfirm -S hostapd dnsmasq
+fi
+
+# Delete and re-create ap0 interface on top of wlan0
+iw dev ap0 del 2> /dev/null
+iw dev wlan0 interface add ap0 type __ap
+
+# Stop any dnsmasq and hostapd services in case already running
+systemctl disable --now hostapd dnsmasq kvmd-otgnet-dnsmasq
+
+### Add /var/lib/misc entry in /etc/fstab
+# Required for dnsmasq to keep track of leased IPs and logs
+if [ $( grep -wc misc /etc/fstab ) -ne 1 ]; then
+
+  cat <<FSTAB >> /etc/fstab
+tmpfs /var/lib/misc     tmpfs  mode=0755               0 0
+FSTAB
+
+  # mount /var/lib/misc
+  mount /var/lib/misc
+
+fi
+
+# Backup original /etc/dnsmasq.conf
+if [ ! -e /etc/dnsmas.conf.orig ]; then cp /etc/dnsmasq.conf /etc/dnsmasq.conf.orig; fi
+
+### Create custom /etc/dnsmasq.conf file
+cat <<DNSMASQ > /etc/dnsmasq.conf
+log-facility=/var/lib/misc/dnsmasq.log
+dhcp-range=interface:ap0,192.168.4.10,192.168.4.250,12h
+port=5553   # use this to listen for DNS requests (53 is already in use by systemd-resolve)
+dhcp-option=6,1.1.1.1,1.0.0.1
+log-queries
+DNSMASQ
+
+ifconfig ap0 down
+ifconfig ap0 up
+ifconfig ap0 192.168.4.1/24
+
+# Add firewall rule to allow ap0 routed through wlan0
+iptables -t nat -F
+iptables -F
+
+### forward ap0 through eth0 (default static route uses faster connection)
+if [[ $( ip -br a | grep UP | grep eth0 | awk '{print $1}' ) == "eth0" ]]; then
+  iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+  iptables -A FORWARD -i ap0 -o eth0 -j ACCEPT
+elif [[ $( ip -br a | grep UP | grep wlan0 | awk '{print $1}' ) == "wlan0" ]]; then
+  # forward ap0 through wlan0
+  iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+  iptables -A FORWARD -i ap0 -o wlan0 -j ACCEPT
+fi
+echo '1' > /proc/sys/net/ipv4/ip_forward
+
+### overwrite /etc/hostapd/hostapd.conf config
+cat <<EOF > /etc/hostapd/hostapd.conf
+country_code=US
+interface=ap0
+driver=nl80211
+channel=1
+hw_mode=g
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+
+ssid=${SSID}
+wpa=2
+wpa_passphrase=${PASSPHRASE}
+
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+# Change the broadcasted/multicasted keys after this many seconds.
+wpa_group_rekey=600
+# Change the master key after this many seconds. Master key is used as a basis
+wpa_gmk_rekey=86400
+EOF
+
+### if -f (force) option is enabled, then run hotspot service to always run at boot ###
+if [[ "$1" == "-f" ]]; then
+
+  # Copy current file into /usr/bin/
+  cp -f $0 /usr/bin/hotspot
+
+  # Create service file this hotspot script at boot (that runs with -f option)
+  rm -f /usr/lib/systemd/system/hotspot.service
+  cat <<FWSVC > /usr/lib/systemd/system/hotspot.service
+[Unit]
+Description=Run Hotspot AP
+After=network.target network-online.target nss-lookup.target
+
+[Service]
+User=root
+Type=simple
+ExecStart=/usr/bin/hotspot -f
+
+[Install]
+WantedBy=multi-user.target
+FWSVC
+
+  # enable and start hotspot.service to start at boot
+  systemctl enable --now hotspot.service hostapd dnsmasq
+
+else
+
+  # disable hotspot service
+  systemctl disable --now hotspot.service
+
+fi
+
+systemctl unmask hostapd
+# Start the services for this session
+systemctl restart hostapd dnsmasq
+
+### Added on 03/03/22 -- just in case kvmd-otgnet-dnsmasq was already running
+# fix it by adding entry usb0 DHCP
+if [ ! -e /usr/bin/otgnet.sh ]; then
+        wget -O /usr/bin/otgnet.sh  https://kvmnerds.com/PiKVM/otgnet.sh 2> /dev/null
+        chmod +x /usr/bin/otgnet.sh
+fi
+/usr/bin/otgnet.sh
+
+sleep 3
+ip -br a | grep ap0
+iwconfig ap0
+systemctl status hostapd dnsmasq
+
+ro
