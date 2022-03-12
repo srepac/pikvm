@@ -44,7 +44,7 @@ rw
 if [ $( pacman -Q | grep -wc hostapd ) -ne 1 ]; then
   # first, update db's
   pacman -Syy
-  # then, install hostpad and dnsmasq packages
+  # then, install hostapd and dnsmasq packages
   pacman --noconfirm -S hostapd dnsmasq
 fi
 
@@ -192,7 +192,7 @@ fi
 systemctl restart hostapd dnsmasq
 
 ### Added on 03/03/22 -- just in case kvmd-otgnet-dnsmasq was already running
-# fix it by adding entry usb0 DHCP
+# fix it by adding entry for usb0 DHCP
 if [ ! -e /usr/bin/otgnet.sh ]; then
   wget -O /usr/bin/otgnet.sh  https://kvmnerds.com/PiKVM/otgnet.sh 2> /dev/null
   chmod +x /usr/bin/otgnet.sh
