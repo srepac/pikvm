@@ -2,22 +2,26 @@
 # Created by srepac@kvmnerds.com
 #
 # Filename:  hotspot    for Arch PiKVM
-VER=1.2
+VER=1.4
 ## CHANGELOG:
 # 1.0   03/02/22    Created
 # 1.1   03/03/22    Added ability to always run services at boot (also otgnet network DHCP entry for dnsmasq)
 # 1.2   03/04/22    Add ap0 interface on top of wlan0 for use as hotspot AP
+# 1.3   03/11/22    Create script/service so that AP starts up on boot and make it easy to change hotspot network
+# 1.4   03/12/22    Updated SSID to be hostname-AP; DNSport pick between 53 and 5553; refactoring
 #
 # This script was written to allow PiKVM to run its wifi as hotspot AP akin to how GoPro is first configured
 #
-#   SSID:         pikvm-AP
+#   SSID:         $(hostname)-AP
 #   Passphrase:   pikvmisawesome
 #
-#   Hotspot network IP 192.168.4.1/24   DHCP range 192.168.4.10 - 192.168.4.250
+#   Hotspot network IP 10.5.4.1/24   DHCP range 10.5.4.10 - 10.5.4.250
 ###
-# Change SSID and passphrase here
-SSID="pikvm-AP"
+# Change SSID and PASSPHRASE here
+SSID="$(hostname)-AP"
 PASSPHRASE='pikvmisawesome'
+# Replace the first 3 octets of hotspot network here (change it to whatever you want)  Default: NETWORK="10.5.4"
+NETWORK="10.5.4"
 ###
 : '
 Before running this script, you should connect your wifi to SSID first, and then run this script creating ap0
@@ -51,6 +55,8 @@ iw dev wlan0 interface add ap0 type __ap
 # Stop any dnsmasq and hostapd services in case already running
 systemctl disable --now hostapd dnsmasq kvmd-otgnet-dnsmasq
 
+sed -i 's#^DAEMON_CONF=.*#DAEMON_CONF=/etc/hostapd/hostapd.conf#' /etc/init.d/hostapd
+
 ### Add /var/lib/misc entry in /etc/fstab
 # Required for dnsmasq to keep track of leased IPs and logs
 if [ $( grep -wc misc /etc/fstab ) -ne 1 ]; then
@@ -68,32 +74,63 @@ fi
 if [ ! -e /etc/dnsmas.conf.orig ]; then cp /etc/dnsmasq.conf /etc/dnsmasq.conf.orig; fi
 
 ### Create custom /etc/dnsmasq.conf file
+if [[ $( netstat -nap | grep :53\ | grep -v dnsmasq | wc -l ) -eq 0 ]]; then
+  # use dnsmasq default port
+  DNSPORT=53
+else
+  # another dns resolver is listening on port 53, so use different port
+  DNSPORT=5553
+fi
+
 cat <<DNSMASQ > /etc/dnsmasq.conf
 log-facility=/var/lib/misc/dnsmasq.log
-dhcp-range=interface:ap0,192.168.4.10,192.168.4.250,12h
-port=5553   # use this to listen for DNS requests (53 is already in use by systemd-resolve)
+dhcp-range=interface:ap0,${NETWORK}.10,${NETWORK}.250,12h
+port=${DNSPORT}   # use this to listen for DNS requests
 dhcp-option=6,1.1.1.1,1.0.0.1
 log-queries
 DNSMASQ
 
 ifconfig ap0 down
 ifconfig ap0 up
-ifconfig ap0 192.168.4.1/24
+ifconfig ap0 ${NETWORK}.1/24
 
 # Add firewall rule to allow ap0 routed through wlan0
 iptables -t nat -F
 iptables -F
 
 ### forward ap0 through eth0 (default static route uses faster connection)
-if [[ $( ip -br a | grep UP | grep eth0 | awk '{print $1}' ) == "eth0" ]]; then
-  iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-  iptables -A FORWARD -i ap0 -o eth0 -j ACCEPT
-elif [[ $( ip -br a | grep UP | grep wlan0 | awk '{print $1}' ) == "wlan0" ]]; then
+#if [[ $( ip -br a | grep UP | grep eth0 | awk '{print $1}' ) == "eth0" ]]; then
+#  IFACE="eth0"
+#elif [[ $( ip -br a | grep UP | grep wlan0 | awk '{print $1}' ) == "wlan0" ]]; then
   # forward ap0 through wlan0
-  iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
-  iptables -A FORWARD -i ap0 -o wlan0 -j ACCEPT
-fi
+#  IFACE="wlan0"
+#fi
+### BETTER TO USE WORKING DEFAULT ROUTE INTERFACE ###
+IFACE=$( ip route | grep default | awk '{print $5}' | head -1 )
+iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
+iptables -A FORWARD -i ap0 -o $IFACE -j ACCEPT
 echo '1' > /proc/sys/net/ipv4/ip_forward
+
+## Add entry in /etc/dhcpcd.conf so that ap0 doesn't get a DHCP address
+if [ $( grep -wc nohook /etc/dhcpcd.conf ) -ne 1 ]; then
+
+  cat <<AP0 >> /etc/dhcpcd.conf
+interface ap0
+static ip_address=${NETWORK}.1/24
+nohook wpa_supplicant
+AP0
+
+fi
+
+### Add required routed-ap configuration
+if [ ! -e /etc/sysctl.d/routed-ap.conf ]; then
+
+  cat <<ROUTEDAP  > /etc/sysctl.d/routed-ap.conf
+# Enable IPv4 routing
+net.ipv4.ip_forward=1
+ROUTEDAP
+
+fi
 
 ### overwrite /etc/hostapd/hostapd.conf config
 cat <<EOF > /etc/hostapd/hostapd.conf
@@ -118,23 +155,41 @@ wpa_group_rekey=600
 wpa_gmk_rekey=86400
 EOF
 
-### if -f (force) option is enabled, then run hotspot service to always run at boot ###
+systemctl unmask hostapd
+# If -f (force) option is passed in, then enable services to run at boot
 if [[ "$1" == "-f" ]]; then
 
-  # Copy current file into /usr/bin/
-  cp -f $0 /usr/bin/hotspot
+  rm -f /usr/bin/hotspot-enable
+  cat <<SCRIPT > /usr/bin/hotspot-enable
+#!/bin/bash
+# Delete and re-create ap0 interface on top of wlan0
+iw dev ap0 del 2> /dev/null
+iw dev wlan0 interface add ap0 type __ap
+
+ifconfig ap0 down
+ifconfig ap0 up
+ifconfig ap0 ${NETWORK}.1/24
+
+iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
+iptables -A FORWARD -i ap0 -o $IFACE -j ACCEPT
+echo '1' > /proc/sys/net/ipv4/ip_forward
+
+systemctl restart hostapd
+SCRIPT
+
+  chmod +x /usr/bin/hotspot-enable
 
   # Create service file this hotspot script at boot (that runs with -f option)
   rm -f /usr/lib/systemd/system/hotspot.service
   cat <<FWSVC > /usr/lib/systemd/system/hotspot.service
 [Unit]
-Description=Run Hotspot AP
+Description=Run Hotspot AP at boot
 After=network.target network-online.target nss-lookup.target
 
 [Service]
 User=root
 Type=simple
-ExecStart=/usr/bin/hotspot -f
+ExecStart=/usr/bin/hotspot-enable
 
 [Install]
 WantedBy=multi-user.target
@@ -145,20 +200,19 @@ FWSVC
 
 else
 
-  # disable hotspot service
+  # disable hotspot.service
   systemctl disable --now hotspot.service
 
 fi
 
-systemctl unmask hostapd
-# Start the services for this session
+# Restat hostapd and dnsmasq so the config changes take effect
 systemctl restart hostapd dnsmasq
 
 ### Added on 03/03/22 -- just in case kvmd-otgnet-dnsmasq was already running
 # fix it by adding entry usb0 DHCP
 if [ ! -e /usr/bin/otgnet.sh ]; then
-        wget -O /usr/bin/otgnet.sh  https://kvmnerds.com/PiKVM/otgnet.sh 2> /dev/null
-        chmod +x /usr/bin/otgnet.sh
+  wget -O /usr/bin/otgnet.sh  https://kvmnerds.com/PiKVM/otgnet.sh 2> /dev/null
+  chmod +x /usr/bin/otgnet.sh
 fi
 /usr/bin/otgnet.sh
 
