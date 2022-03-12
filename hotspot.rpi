@@ -90,33 +90,15 @@ ifconfig ap0 down
 ifconfig ap0 up
 ifconfig ap0 ${NETWORK}.1/24
 
-# Add firewall rule to allow ap0 routed through wlan0
+### Add firewall rule to allow ap0 routed through current default static route interface ###
 iptables -t nat -F
 iptables -F
 
-### forward ap0 through eth0 (default static route uses faster connection)
-#if [[ $( ip -br a | grep UP | grep eth0 | awk '{print $1}' ) == "eth0" ]]; then
-#  IFACE="eth0"
-#elif [[ $( ip -br a | grep UP | grep wlan0 | awk '{print $1}' ) == "wlan0" ]]; then
-  # forward ap0 through wlan0
-#  IFACE="wlan0"
-#fi
-### BETTER TO USE WORKING DEFAULT ROUTE INTERFACE ###
 IFACE=$( ip route | grep default | awk '{print $5}' | head -1 )
+
 iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
 iptables -A FORWARD -i ap0 -o $IFACE -j ACCEPT
 echo '1' > /proc/sys/net/ipv4/ip_forward
-
-## Add entry in /etc/dhcpcd.conf so that ap0 doesn't get a DHCP address
-if [ $( grep -wc nohook /etc/dhcpcd.conf ) -ne 1 ]; then
-
-  cat <<AP0 >> /etc/dhcpcd.conf
-interface ap0
-static ip_address=${NETWORK}.1/24
-nohook wpa_supplicant
-AP0
-
-fi
 
 ### Add required routed-ap configuration
 if [ ! -e /etc/sysctl.d/routed-ap.conf ]; then
