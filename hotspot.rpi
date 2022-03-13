@@ -94,11 +94,23 @@ ifconfig ap0 ${NETWORK}.1/24
 iptables -t nat -F
 iptables -F
 
+# use the first default static route interface
 IFACE=$( ip route | grep default | awk '{print $5}' | head -1 )
 
 iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
 iptables -A FORWARD -i ap0 -o $IFACE -j ACCEPT
 echo '1' > /proc/sys/net/ipv4/ip_forward
+
+## Add entry in /etc/dhcpcd.conf so that wifi doesn't get a DHCP address
+if [ $( grep -wc nohook /etc/dhcpcd.conf ) -ne 1 ]; then
+
+  cat <<DHCPCD >> /etc/dhcpcd.conf
+interface ap0
+        static ip_address=${NETWORK}.1/24
+        nohook wpa_supplicant
+DHCPCD
+
+fi
 
 ### Add required routed-ap configuration
 if [ ! -e /etc/sysctl.d/routed-ap.conf ]; then
@@ -140,6 +152,8 @@ if [[ "$1" == "-f" ]]; then
   rm -f /usr/bin/hotspot-enable
   cat <<SCRIPT > /usr/bin/hotspot-enable
 #!/bin/bash
+# Script to enable hotspot at anytime
+set -x
 # Delete and re-create ap0 interface on top of wlan0
 iw dev ap0 del 2> /dev/null
 iw dev wlan0 interface add ap0 type __ap
@@ -148,6 +162,8 @@ ifconfig ap0 down
 ifconfig ap0 up
 ifconfig ap0 ${NETWORK}.1/24
 
+iptables -t nat -F
+iptables -F
 iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
 iptables -A FORWARD -i ap0 -o $IFACE -j ACCEPT
 echo '1' > /proc/sys/net/ipv4/ip_forward
@@ -157,7 +173,7 @@ SCRIPT
 
   chmod +x /usr/bin/hotspot-enable
 
-  # Create service file this hotspot script at boot (that runs with -f option)
+  # Create service file to run hotspot-enable script at boot (that runs with -f option)
   rm -f /usr/lib/systemd/system/hotspot.service
   cat <<FWSVC > /usr/lib/systemd/system/hotspot.service
 [Unit]
