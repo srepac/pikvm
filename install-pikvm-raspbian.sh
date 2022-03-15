@@ -822,6 +822,11 @@ if [[ "${PYTHONVER}" == "3.7" ]]; then
   systemctl restart kvmd-nginx kvmd
 fi
 
+# If /var/lib/kvmd/msd is mounted, then remove msd: type: disabled lines in /etc/kvmd/override.yaml
+if [ $( mount | grep -cw /var/lib/kvmd/msd ) -eq 1 ]; then
+  sed -i -e 's/    msd:$        type: disabled$//g' /etc/kvmd/override.yaml
+fi
+
 # download pistat, pi-temp, and pikvm-info script into /usr/local/bin/
 wget https://kvmnerds.com/RPiKVM/pistat -O /usr/local/bin/pistat > /dev/null 2> /dev/null
 wget https://kvmnerds.com/RPiKVM/pi-temp -O /usr/local/bin/pi-temp > /dev/null 2> /dev/null
