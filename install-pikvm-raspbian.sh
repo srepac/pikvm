@@ -13,8 +13,8 @@
 '
 # NOTE:  This was tested on a new install of raspbian desktop and lite versions, but should also work on an existing install.
 #
-# Last change 20220225 0740 PDT
-VER=3.4.4
+# Last change 20220313 1045 PDT
+VER=3.5.7
 #
 # Changelog:
 # 1.0   from August 2021
@@ -38,21 +38,38 @@ VER=3.4.4
 # 3.4.2 02/24/22 - additional check that /usr/bin/janus runs properly, otherwise replace it with janus REPO package
 # 3.4.3 02/25/22 - add kvmd user to dialout group -- required for xh_hk4401 support per @bobiverse
 # 3.4.4 02/25/22 - check to make sure python 3.7 or 3.9 are installed; gracefully exit otherwise
+# 3.4.5 02/25/22 - save /etc/motd to /etc/motd.orig and fix zero2W case statement
+# 3.4.6 02/25/22 - re-run part 1 if /usr/bin/kvmd doesn't exist or -f (force) option is selected
+# 3.5   02/25/22 - added restore-configs function to restore configurations from previous install
+# 3.5.1 02/26/22 - redirect stderr when restoring configs (clean install) -- handle non-existent .save files
+# 3.5.2 02/27/22 - update motd and python3 -V check
+# 3.5.3 02/28/22 - change pointer from blue blob to crosshair
+# 3.5.4 03/01/22 - add support for v0 (pi1/2/3 platforms); confirmation to proceed after platform is selected
+# 3.5.5 03/01/22 - build wiringpi from source
+# 3.5.6 03/06/22 - make sure script is run as root
+# 3.5.7 03/13/22 - use my ustreamer fork of 4.13 version (just in case 5.0)
 
 set +x
+# Added on 03/06/22 -- check to make sure user is running the script as root.
+WHOAMI=$( whoami )
+if [[ $WHOAMI != "root" ]]; then
+  echo "$WHOAMI, this must be run as root."
+  exit 1
+fi
+
 export PIKVMREPO="https://kvmnerds.com/REPO"
-export KVMDCACHE="/var/cache/kvmd"
+export KVMDCACHE="/var/cache/kvmd"; mkdir -p ${KVMDCACHE}
 export PKGINFO="${KVMDCACHE}/packages.txt"
-export LOGFILE="${KVMDCACHE}/installer-$(date +%Y%m%d-%H:%M:%S).log"
+export LOGFILE="${KVMDCACHE}/installer-$(date +%Y%m%d-%H:%M:%S).log"; touch $LOGFILE
 
 ### 02/25/2022 -- script does not work on raspbian with python 3.10 and higher or 3.6 and lower
-PYTHONVER=$( python -V | awk '{print $2}' | cut -d'.' -f1,2 )
+PYTHONVER=$( python3 -V | awk '{print $2}' | cut -d'.' -f1,2 )
 case $PYTHONVER in
-  "3.5"|"3.6"|"3.10"|"3.11"|"3.12")
-    printf "\nYou are running python ${PYTHONVER}.  Installer (kvmd 3.47) only works with python 3.7 -OR- 3.9.\n"
-    exit 1
+  "3.7"|"3.9")   # only supported versions of python
     ;;
-  "3.7"|"3.9")
+  *)
+    printf "\nYou are running python ${PYTHONVER}.  Installer (for kvmd 3.47) only works with python 3.7 -OR- 3.9.\n"
+    exit 1
     ;;
 esac
 
@@ -129,6 +146,13 @@ BULLSEYEOVERRIDE
 
     fi
 
+    ### added 03/01/22
+    if [ $SERIAL -eq 1 ]; then     # use Arduino serial HID
+      sed -i -e 's+    hid:$+    hid:\n        type: serial\n        reset_pin: 4\n        device: /dev/kvmd-hid\n+g' /etc/kvmd/override.yaml
+      sed -i -e 's+        mouse_alt:$+#        mouse_alt:+g' /etc/kvmd/override.yaml
+      sed -i -e 's+            device:+#            device:+g' /etc/kvmd/override.yaml
+    fi
+
   fi
 } # end create-override
 
@@ -150,6 +174,7 @@ otg-devices() {
 } # end otg-device creation
 
 install-tc358743() {
+  ### https://www.linux-projects.org/uv4l/installation/ ###
   ### CSI Support for Raspbian ###
   curl https://www.linux-projects.org/listing/uv4l_repo/lpkey.asc | apt-key add -
   echo "deb https://www.linux-projects.org/listing/uv4l_repo/raspbian/stretch stretch main" | tee /etc/apt/sources.list.d/uv4l.list
@@ -162,9 +187,10 @@ install-tc358743() {
 boot-files() {
   if [[ $( grep srepac /boot/config.txt | wc -l ) -eq 0 ]]; then
 
-    if [[ $( echo $platform | grep usb | wc -l ) -eq 1 ]]; then
+    if [[ $( echo $platform | grep usb | wc -l ) -eq 1 ]]; then  # hdmiusb platforms
 
-      cat <<FIRMWARE >> /boot/config.txt
+      if [ $SERIAL -ne 1 ]; then  # v2 hdmiusb
+        cat <<FIRMWARE >> /boot/config.txt
 # srepac custom configs
 ###
 hdmi_force_hotplug=1
@@ -188,9 +214,28 @@ dtparam=i2c_arm=on
 dtoverlay=i2c-rtc,pcf8563
 FIRMWARE
 
-    else
+      else   # v0 hdmiusb
 
-      cat <<CSIFIRMWARE >> /boot/config.txt
+        cat <<SERIALUSB >> /boot/config.txt
+hdmi_force_hotplug=1
+gpu_mem=16
+enable_uart=1
+dtoverlay=disable-bt
+
+# I2C (display)
+dtparam=i2c_arm=on
+
+#
+disable_overscan=1
+SERIALUSB
+
+      fi
+
+    else   # CSI platforms
+
+      if [ $SERIAL -ne 1 ]; then   # v2 CSI
+
+        cat <<CSIFIRMWARE >> /boot/config.txt
 # srepac custom configs
 ###
 hdmi_force_hotplug=1
@@ -214,6 +259,24 @@ dtparam=i2c_arm=on
 dtoverlay=i2c-rtc,pcf8563
 CSIFIRMWARE
 
+      else   # v0 CSI
+
+        cat <<CSISERIAL >> /boot/config.txt
+hdmi_force_hotplug=1
+gpu_mem=16
+enable_uart=1
+dtoverlay=tc358743
+dtoverlay=disable-bt
+
+# I2C (display)
+dtparam=i2c_arm=on
+
+#
+disable_overscan=1
+CSISERIAL
+
+      fi
+
       # add the tc358743 module to be loaded at boot for CSI
       if [[ $( grep -w tc358743 /etc/modules | wc -l ) -eq 0 ]]; then
         echo "tc358743" >> /etc/modules
@@ -225,10 +288,11 @@ CSIFIRMWARE
   fi  # end of check if entries are already in /boot/config.txt
 
   # /etc/modules required entries for DWC2, HID and I2C
-  if [[ $( grep -w dwc2 /etc/modules | wc -l ) -eq 0 ]]; then
+  # dwc2 and libcomposite only apply to v2 builds
+  if [[ $( grep -w dwc2 /etc/modules | wc -l ) -eq 0 && $SERIAL -ne 1 ]]; then
     echo "dwc2" >> /etc/modules
   fi
-  if [[ $( grep -w libcomposite /etc/modules | wc -l ) -eq 0 ]]; then
+  if [[ $( grep -w libcomposite /etc/modules | wc -l ) -eq 0 && $SERIAL -ne 1 ]]; then
     echo "libcomposite" >> /etc/modules
   fi
   if [[ $( grep -w i2c-dev /etc/modules | wc -l ) -eq 0 ]]; then
@@ -243,7 +307,6 @@ CSIFIRMWARE
 
 get-packages() {
   printf "\n\n-> Getting Pi-KVM packages from ${PIKVMREPO}\n\n"
-  mkdir -p ${KVMDCACHE}
   echo "wget ${PIKVMREPO} -O ${PKGINFO}"
   wget ${PIKVMREPO} -O ${PKGINFO} 2> /dev/null
   echo
@@ -268,7 +331,7 @@ get-platform() {
 
   case $model in
 
-    "zero2")
+    "zero2W"|"zero2")
       # force platform to only use v2-hdmi for zero2w
       platform="kvmd-platform-v2-hdmi-zero2w"
       export GPUMEM=96
@@ -293,10 +356,22 @@ get-platform() {
       export GPUMEM=96
       ;;
 
-    "3B")
-      ### added on 02/25/2022
-      echo "Pi 3B board does not have OTG support.  Exiting script."
-      exit 1
+    "3B"|"2B"|"2A"|"B"|"A")
+      ### added on 02/25/2022 but updated on 03/01/2022 (GPUMEM hardcoded to 16MB)
+      echo "Pi ${model} board does not have OTG support.  You will need to use serial HID via Arduino."
+      SERIAL=1   # set flag to indicate Serial HID (default is 0 for all other boards)
+      number=$( echo $model | sed 's/[A-Z]//g' )
+
+      tryagain=1
+      while [ $tryagain -eq 1 ]; do
+        printf "Choose which capture device you will use:\n\n  1 - USB dongle\n  2 - v2 CSI\n"
+        read -p "Please type [1-2]: " capture
+        case $capture in
+          1) platform="kvmd-platform-v0-hdmiusb-rpi${number}"; tryagain=0;;
+          2) platform="kvmd-platform-v0-hdmi-rpi${number}"; tryagain=0;;
+          *) printf "\nTry again.\n"; tryagain=1;;
+        esac
+      done
       ;;
 
     "400")
@@ -305,7 +380,7 @@ get-platform() {
       export GPUMEM=256
       ;;
 
-    *)   ### default to use rpi4 platform image (this may work with other SBCs with OTG)
+    *)   ### default to use rpi4 platform image (this may also work with other SBCs with OTG)
       tryagain=1
       while [ $tryagain -eq 1 ]; do
         printf "Choose which capture device you will use:\n\n  1 - USB dongle\n  2 - v2 CSI\n  3 - V3 HAT\n"
@@ -324,6 +399,9 @@ get-platform() {
   echo | tee -a $LOGFILE
   echo "Platform selected -> $platform" | tee -a $LOGFILE
   echo | tee -a $LOGFILE
+
+  printf "Please verify the platform selected above.\n"
+  press-enter
 } # end get-platform
 
 install-kvmd-pkgs() {
@@ -377,9 +455,15 @@ fix-udevrules() {
 } # end fix-udevrules
 
 enable-kvmd-svcs() {
-  # enable KVMD services but don't start them
-  echo "-> Enabling kvmd-nginx kvmd-webterm kvmd-otg and kvmd services, but do not start them."
-  systemctl enable kvmd-nginx kvmd-webterm kvmd-otg kvmd kvmd-fix
+  if [ $SERIAL -eq 1 ]; then
+    # enable KVMD services but don't start them for v0 platforms
+    echo "-> Enabling kvmd-nginx kvmd-webterm and kvmd services, but do not start them."
+    systemctl enable kvmd-nginx kvmd-webterm kvmd kvmd-fix
+  else
+    # enable KVMD services but don't start them for v2 platforms
+    echo "-> Enabling kvmd-nginx kvmd-webterm kvmd-otg and kvmd services, but do not start them."
+    systemctl enable kvmd-nginx kvmd-webterm kvmd-otg kvmd kvmd-fix
+  fi
 
   # in case going from CSI to USB, then disable kvmd-tc358743 service (in case it's enabled)
   if [[ $( echo $platform | grep usb | wc -l ) -eq 1 ]]; then
@@ -397,13 +481,18 @@ build-ustreamer() {
 
   # Download ustreamer source and build it
   cd /tmp; rm -rf ustreamer
-  git clone --depth=1 https://github.com/pikvm/ustreamer
+  #git clone --depth=1 https://github.com/pikvm/ustreamer
+  ### Added on 03/13/22 -- use my fork of ustreamer 4.13 in case the ustreamer code gets updated to 5.0
+  ### ustreamer 5.0 uses diferent method to perform hardware encoding (can't use OMX encoder anymore)
+  git clone --depth=1 https://github.com/srepac/ustreamer
+
   cd ustreamer
   if [[ $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'=' -f2 ) == "bullseye" ]]; then
     # 64-bit OS -OR- bullseye (removed omx headers), so don't compile OMX support for ustreamer
     make WITH_OMX=0 WITH_GPIO=1 WITH_SETPROCTITLE=1
   else
-    make WITH_OMX=1 WITH_GPIO=1 WITH_SETPROCTITLE=1     # hardware OMX support with 32-bit ONLY (non bullseye)
+    # hardware OMX support with 32-bit ONLY (non bullseye)
+    make WITH_OMX=1 WITH_GPIO=1 WITH_SETPROCTITLE=1
   fi
   make install
   # kvmd service is looking for /usr/bin/ustreamer
@@ -412,6 +501,17 @@ build-ustreamer() {
 
   echo -n "ustreamer version/features: "; ustreamer -v && ustreamer --features
 } # end build-ustreamer
+
+build-wiringpi() {
+  printf "\n\n-> Building wiringpi from source\n\n"
+
+  cd /tmp; rm -rf WiringPi
+  git clone https://github.com/WiringPi/WiringPi.git
+  cd WiringPi
+  ./build
+
+  gpio -v
+} # end build-wiringpi
 
 install-dependencies() {
   echo
@@ -457,6 +557,7 @@ install-dependencies() {
     else
       ### 20220215 issue: ttyd won't compile on buster so use the manual download of deb packages and install
       ### required dependent packages for ttyd ###
+      cd /tmp
       wget http://ftp.us.debian.org/debian/pool/main/libe/libev/libev4_4.33-1_armhf.deb 2> /dev/null
       dpkg -i libev4_4.33-1_armhf.deb
       wget http://ftp.us.debian.org/debian/pool/main/j/json-c/libjson-c5_0.15-2_armhf.deb 2> /dev/null
@@ -474,6 +575,9 @@ install-dependencies() {
   if [ ! -e /usr/bin/ustreamer ]; then
     build-ustreamer
   fi
+
+  # added on 03/01/2022 1000 PDT
+  build-wiringpi
 } # end install-dependencies
 
 python-pkg-dir() {
@@ -596,20 +700,19 @@ start-kvmd-svcs() {
   # 1. nginx is the webserver
   # 2. kvmd-otg is for OTG devices (keyboard/mouse, etc..)
   # 3. kvmd is the main daemon
-  systemctl restart kvmd-nginx kvmd-otg kvmd-webterm kvmd
-  #systemctl status kvmd-nginx kvmd-otg kvmd-webterm kvmd
+  systemctl restart kvmd-nginx kvmd-otg kvmd-webterm kvmd kvmd-fix
 } # end start-kvmd-svcs
 
 fix-motd() {
   if [ $( grep pikvm /etc/motd | wc -l ) -eq 0 ]; then
-    cp /etc/motd /tmp/motd; rm /etc/motd
+    cp /etc/motd /etc/motd.orig; rm /etc/motd
 
     printf "
          ____  ____  _        _  ____     ____  __
         |  _ \|  _ \(_)      | |/ /\ \   / /  \/  |
-        | |_) | |_) | |  __  | ' /  \ \ / /| |\/| |
+        | |_) | |_) | |  __  | ' /  \ \ / /| |\/| |  software by @mdevaev
         |  _ <|  __/| | (__) | . \   \ V / | |  | |
-        |_| \_\_|   |_|      |_|\_\   \_/  |_|  |_|
+        |_| \_\_|   |_|      |_|\_\   \_/  |_|  |_|  port by @srepac
 
     Welcome to Raspbian-KVM - Open Source IP-KVM based on Raspberry Pi
     ____________________________________________________________________________
@@ -623,9 +726,41 @@ fix-motd() {
 
 " > /etc/motd
 
-    cat /tmp/motd >> /etc/motd
+    cat /etc/motd.orig >> /etc/motd
   fi
 } # end fix-motd
+
+restore-configs() {
+  printf "\n-> Restoring config files\n"
+  # Restore passwd files used by PiKVM
+  cp /etc/kvmd/htpasswd.save /etc/kvmd/htpasswd 2> /dev/null
+  cp /etc/kvmd/ipmipasswd.save /etc/kvmd/ipmipasswd 2> /dev/null
+  cp /etc/kvmd/vncpasswd.save /etc/kvmd/vncpasswd 2> /dev/null
+
+  # Restore webUI name and overrides
+  cp /etc/kvmd/meta.yaml.save /etc/kvmd/meta.yaml 2> /dev/null
+  cp /etc/kvmd/override.yaml.save /etc/kvmd/override.yaml 2> /dev/null
+  cp /etc/kvmd/web.css.save /etc/kvmd/web.css 2> /dev/null
+
+  # Restore Janus configs
+  #cp /etc/kvmd/janus/janus.cfg.save /etc/kvmd/janus/janus.cfg 2> /dev/null
+
+  # Restore sudoers.d/99_kvmd and custom_commands
+  cp /etc/sudoers.d/99_kvmd.save /etc/sudoers.d/99_kvmd 2> /dev/null
+  cp /etc/sudoers.d/custom_commands.save /etc/sudoers.d/custom_commands 2> /dev/null
+} # end restore-configs
+
+change-pointer() {   # change default pointer of blue dot to crosshair
+  if [ $( grep -cw crosshair /etc/kvmd/web.css ) -ne 1 ]; then
+
+    cat <<POINTER >> /etc/kvmd/web.css
+div.stream-box-mouse-enabled {
+    cursor: crosshair !important;
+}
+POINTER
+
+  fi
+} # end change-pointer to crosshair
 
 
 ### MAIN STARTS HERE ###
@@ -633,10 +768,11 @@ fix-motd() {
 # First part requires a reboot in order to create kvmd users and groups
 # Second part will start the necessary kvmd services
 # added option to re-install by adding -f parameter (for use as platform switcher)
-if [[ $( grep kvmd /etc/passwd | wc -l ) -eq 0 || "$1" == "-f" ]]; then
+### changed 02/25/2022 - if /usr/bin/kvmd doesn't exist OR -force install is selected, then run Part 1 ###
+if [[ ! -e /usr/bin/kvmd || "$1" == "-f" ]]; then
   printf "\nRunning part 1 of PiKVM installer v$VER script for Raspbian by @srepac\n" | tee -a $LOGFILE
   get-packages | tee -a $LOGFILE
-  get-platform
+  SERIAL=0; get-platform
   boot-files | tee -a $LOGFILE
   install-kvmd-pkgs | tee -a $LOGFILE
   create-override | tee -a $LOGFILE
@@ -652,18 +788,22 @@ if [[ $( grep kvmd /etc/passwd | wc -l ) -eq 0 || "$1" == "-f" ]]; then
   press-enter
   reboot
 
-### in place of reboot, we can try to create users and group via method 2 here ###
-# COMMENT out reboot above then uncomment the following lines to try method 2 below
-#  echo "==> Ensuring KVMD users and groups ..."
-#  systemd-sysusers /usr/lib/sysusers.d/kvmd.conf
-
 else
+
   printf "\nRunning part 2 of PiKVM installer v$VER script for Raspbian by @srepac\n" | tee -a $LOGFILE
+
+  ### run these to make sure kvmd users are created ###
+  echo "==> Ensuring KVMD users and groups ..." | tee -a $LOGFILE
+  systemd-sysusers /usr/lib/sysusers.d/kvmd.conf  | tee -a $LOGFILE
+  systemd-sysusers /usr/lib/sysusers.d/kvmd-webterm.conf | tee -a $LOTFILE
+
   fix-nginx-symlinks | tee -a $LOGFILE
   fix-webterm | tee -a $LOGFILE
   fix-motd | tee -a $LOGFILE
   set-ownership | tee -a $LOGFILE
   check-kvmd-works
+  restore-configs | tee -a $LOGFILE
+  change-pointer
   start-kvmd-svcs | tee -a $LOGFILE
 
   printf "\nCheck kvmd devices\n\n" | tee -a $LOGFILE
