@@ -2,13 +2,14 @@
 # Created by srepac@kvmnerds.com
 #
 # Filename:  hotspot    for Arch PiKVM
-VER=1.4
+VER=1.5
 ## CHANGELOG:
 # 1.0   03/02/22    Created
 # 1.1   03/03/22    Added ability to always run services at boot (also otgnet network DHCP entry for dnsmasq)
 # 1.2   03/04/22    Add ap0 interface on top of wlan0 for use as hotspot AP
 # 1.3   03/11/22    Create script/service so that AP starts up on boot and make it easy to change hotspot network
 # 1.4   03/12/22    Updated SSID to be hostname-AP; DNSport pick between 53 and 5553; refactoring
+# 1.5   03/24/22    Use the current nameservers for use with dnsmasq
 #
 # This script was written to allow PiKVM to run its wifi as hotspot AP akin to how GoPro is first configured
 #
@@ -39,6 +40,14 @@ fi
 set -x
 
 rw
+
+### added 03/14/22 - create list of DNS servers from /etc/resolv.conf
+if [ ! -e /etc/kvmd/custom.dns ]; then
+  NAMESERVERS=$( for i in `grep ^nameserver /etc/resolv.conf | awk '{print $2}' | sort -r -u`; do echo -n "$i,"; done | sed 's/,$//' )
+else
+  # comma separated list of DNS servers to use
+  NAMESERVERS=$( egrep -v '^#' /etc/kvmd/custom.dns )
+fi
 
 # Install required packages if not already installed
 if [ $( pacman -Q | grep -wc hostapd ) -ne 1 ]; then
@@ -86,7 +95,7 @@ cat <<DNSMASQ > /etc/dnsmasq.conf
 log-facility=/var/lib/misc/dnsmasq.log
 dhcp-range=interface:ap0,${NETWORK}.10,${NETWORK}.250,12h
 port=${DNSPORT}   # use this to listen for DNS requests
-dhcp-option=6,1.1.1.1,1.0.0.1
+dhcp-option=6,${NAMESERVERS}
 log-queries
 DNSMASQ
 
@@ -110,8 +119,8 @@ if [ $( grep -wc nohook /etc/dhcpcd.conf ) -ne 1 ]; then
 
   cat <<DHCPCD >> /etc/dhcpcd.conf
 interface ap0
-        static ip_address=${NETWORK}.1/24
-        nohook wpa_supplicant
+static ip_address=${NETWORK}.1/24
+nohook wpa_supplicant
 DHCPCD
 
 fi
@@ -151,7 +160,7 @@ EOF
 
 systemctl unmask hostapd
 # If -f (force) option is passed in, then enable services to run at boot
-if [[ "$1" == "-f" ]]; then
+if [[ "$1" == "-f" || "$1" == "--firstboot" ]]; then
 
   rm -f /usr/bin/hotspot-enable
   cat <<SCRIPT > /usr/bin/hotspot-enable
@@ -172,7 +181,7 @@ iptables -t nat -A POSTROUTING -o $IFACE -j MASQUERADE
 iptables -A FORWARD -i ap0 -o $IFACE -j ACCEPT
 echo '1' > /proc/sys/net/ipv4/ip_forward
 
-systemctl restart hostapd
+systemctl restart hostapd dnsmasq
 SCRIPT
 
   chmod +x /usr/bin/hotspot-enable
