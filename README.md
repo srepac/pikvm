@@ -97,6 +97,7 @@ Pi-KVM supports several different hardware configurations, referred to as **plat
 ## Hardware for v2
 * Raspberry Pi board:
   - **Recommended**: Raspberry Pi 4 (2 GB model is enough) for the best performance.
+  - ... Raspberry Pi Zero 2 W (better alternative than regular Zero W).
   - ... or Raspberry Pi ZeroW (slower alternative, no ethernet).
 * MicroSD card (min 16 GB recommended).
 * USB-A 3A charger (female socket) or official rpi recommended power supply.
