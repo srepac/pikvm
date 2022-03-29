@@ -151,8 +151,7 @@ BULLSEYEOVERRIDE
 
     ### added 03/01/22
     if [ $SERIAL -eq 1 ]; then     # use Arduino serial HID
-      sed -i -e 's+    hid:$+    hid:\n        type: serial\n        reset_pin: 4\n        device: /dev/kvmd-hid\n+g' /etc/kvmd/over
-ride.yaml 
+      sed -i -e 's+    hid:$+    hid:\n        type: serial\n        reset_pin: 4\n        device: /dev/kvmd-hid\n+g' /etc/kvmd/override.yaml 
       sed -i -e 's+        mouse_alt:$+#        mouse_alt:+g' /etc/kvmd/override.yaml
       sed -i -e 's+            device:+#            device:+g' /etc/kvmd/override.yaml
     fi
