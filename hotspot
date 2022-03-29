@@ -33,6 +33,9 @@ In addition, if the pi eth0/wlan0 is connected to internet, the systems connecte
 ... hotspot will also have internet access.
 ' ### end of comments ###
 
+### unblock wifi in the very beginning just in case
+rfkill unblock wifi
+
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
   echo "usage:  $0 [-f] where -f forces hotspot to run at boot; default is to run on this session only"
   exit 1
