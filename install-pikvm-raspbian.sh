@@ -134,7 +134,7 @@ kvmd:
 CSIOVERRIDE
 
       if [[ $KERNELVER == "5.10" && ( $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'"' -f2 ) == "bullseye" ) ]]; then
-        ### this only applys if 5.10 kernel AND ( aarch64 OR any bullseye variant) ###
+        ### this only applies if 5.10 kernel AND ( aarch64 OR any bullseye variant) ###
         cat <<BULLSEYEOVERRIDE >> /etc/kvmd/override.yaml
         ### these are required in case we're running bullseye or 64bit OS
         ### hardware OMX is not supported and h264 options are only available with OMX ###
@@ -577,14 +577,14 @@ install-dependencies() {
 #      cp /usr/local/bin/ttyd /usr/bin/
 
       case $( uname -m ) in
-	      "aarch64")
-	        ARCH="arm64";;    # 64-bit bullseye
-	      "armv7l")
-	        ARCH="armhf";;    # 32-bit bullseye
-	      "armv6l")
-	        ARCH="armel";;    # any zero w 1st gen running bullseye
-	      *)
-	        echo "Unsupported architecture.  Exiting."; exit 1;;
+        "aarch64")
+          ARCH="arm64";;    # 64-bit bullseye
+        "armv7l")
+          ARCH="armhf";;    # 32-bit bullseye
+        "armv6l")
+          ARCH="armel";;    # any zero w 1st gen running bullseye
+        *)
+          echo "Unsupported architecture.  Exiting."; exit 1;;
       esac
 
       ### added on 03/28/22 -- building ttyd didn't work as expected so we're installing ttyd from deb package.
