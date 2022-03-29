@@ -8,13 +8,14 @@
 : '
 # SAMPLE /etc/fstab entry for USB drive with only one partition formatted as ext4 for the entire drive:
 
-/dev/sda1  /var/lib/kvmd/msd   ext4  nodev,nosuid,noexec,ro,errors=remount-ro,data=journal,X-kvmd.otgmsd-root=/var/lib/kvmd/msd,X-kvmd.otgmsd-user=kvmd  0  0
+/dev/sda1  /var/lib/kvmd/msd   ext4  nodev,nosuid,noexec,ro,errors=remount-ro,data=journal,X-kvmd.otgmsd-root=/var/lib/kvmd/msd,X-kv
+md.otgmsd-user=kvmd  0  0
 
 '
 # NOTE:  This was tested on a new install of raspbian desktop and lite versions, but should also work on an existing install.
 #
-# Last change 20220313 1045 PDT
-VER=3.5.7
+# Last change 20220328 0720 PDT
+VER=4.1
 #
 # Changelog:
 # 1.0   from August 2021
@@ -37,17 +38,19 @@ VER=3.5.7
 # 3.4.1 02/24/22 - if /usr/bin/janus already exists from previous install, do not extract janus package from REPO
 # 3.4.2 02/24/22 - additional check that /usr/bin/janus runs properly, otherwise replace it with janus REPO package
 # 3.4.3 02/25/22 - add kvmd user to dialout group -- required for xh_hk4401 support per @bobiverse
-# 3.4.4 02/25/22 - check to make sure python 3.7 or 3.9 are installed; gracefully exit otherwise
+# 3.4.4 02/25/22 - check to make sure python 3.7 or 3.9 are installed; gracefully exit otherwise 
 # 3.4.5 02/25/22 - save /etc/motd to /etc/motd.orig and fix zero2W case statement
 # 3.4.6 02/25/22 - re-run part 1 if /usr/bin/kvmd doesn't exist or -f (force) option is selected
 # 3.5   02/25/22 - added restore-configs function to restore configurations from previous install
 # 3.5.1 02/26/22 - redirect stderr when restoring configs (clean install) -- handle non-existent .save files
-# 3.5.2 02/27/22 - update motd and python3 -V check
-# 3.5.3 02/28/22 - change pointer from blue blob to crosshair
+# 3.5.2 02/27/22 - update motd and python3 -V check 
+# 3.5.3 02/28/22 - change pointer from blue blob to crosshair 
 # 3.5.4 03/01/22 - add support for v0 (pi1/2/3 platforms); confirmation to proceed after platform is selected
 # 3.5.5 03/01/22 - build wiringpi from source
 # 3.5.6 03/06/22 - make sure script is run as root
-# 3.5.7 03/13/22 - use my ustreamer fork of 4.13 version (just in case 5.0)
+# 3.5.7 03/13/22 - use my ustreamer fork of 4.13 version (just in case 5.0) 
+# 4.0   03/27/22 - build ustreamer 5.x (kernel 5.15) or 4.x (kernel 5.10) depending on kernel version
+# 4.1   03/27/22 - updated cmd_remove section to only apply when kernel 5.10 AND ( aarch64 OR any bullseye variant ) 
 
 set +x
 # Added on 03/06/22 -- check to make sure user is running the script as root.
@@ -64,10 +67,10 @@ export LOGFILE="${KVMDCACHE}/installer-$(date +%Y%m%d-%H:%M:%S).log"; touch $LOG
 
 ### 02/25/2022 -- script does not work on raspbian with python 3.10 and higher or 3.6 and lower
 PYTHONVER=$( python3 -V | awk '{print $2}' | cut -d'.' -f1,2 )
-case $PYTHONVER in
+case $PYTHONVER in 
   "3.7"|"3.9")   # only supported versions of python
     ;;
-  *)
+  *) 
     printf "\nYou are running python ${PYTHONVER}.  Installer (for kvmd 3.47) only works with python 3.7 -OR- 3.9.\n"
     exit 1
     ;;
@@ -131,7 +134,8 @@ kvmd:
             - "--slowdown"      # so target doesn't have to reboot
 CSIOVERRIDE
 
-      if [[ $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'"' -f2 ) == "bullseye" ]]; then
+      if [[ $KERNELVER == "5.10" && ( $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'"' -f2 ) == "bullseye" ) ]]; then
+        ### this only applys if 5.10 kernel AND ( aarch64 OR any bullseye variant) ###
         cat <<BULLSEYEOVERRIDE >> /etc/kvmd/override.yaml
         ### these are required in case we're running bullseye or 64bit OS
         ### hardware OMX is not supported and h264 options are only available with OMX ###
@@ -148,7 +152,8 @@ BULLSEYEOVERRIDE
 
     ### added 03/01/22
     if [ $SERIAL -eq 1 ]; then     # use Arduino serial HID
-      sed -i -e 's+    hid:$+    hid:\n        type: serial\n        reset_pin: 4\n        device: /dev/kvmd-hid\n+g' /etc/kvmd/override.yaml
+      sed -i -e 's+    hid:$+    hid:\n        type: serial\n        reset_pin: 4\n        device: /dev/kvmd-hid\n+g' /etc/kvmd/over
+ride.yaml 
       sed -i -e 's+        mouse_alt:$+#        mouse_alt:+g' /etc/kvmd/override.yaml
       sed -i -e 's+            device:+#            device:+g' /etc/kvmd/override.yaml
     fi
@@ -358,7 +363,7 @@ get-platform() {
 
     "3B"|"2B"|"2A"|"B"|"A")
       ### added on 02/25/2022 but updated on 03/01/2022 (GPUMEM hardcoded to 16MB)
-      echo "Pi ${model} board does not have OTG support.  You will need to use serial HID via Arduino."
+      echo "Pi ${model} board does not have OTG support.  You will need to use serial HID via Arduino." 
       SERIAL=1   # set flag to indicate Serial HID (default is 0 for all other boards)
       number=$( echo $model | sed 's/[A-Z]//g' )
 
@@ -476,28 +481,47 @@ enable-kvmd-svcs() {
 build-ustreamer() {
   printf "\n\n-> Building ustreamer\n\n"
   # Install packages needed for building ustreamer source
-  echo "apt install -y build-essential libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev"
-  apt install -y build-essential libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev > /dev/null
+  echo "apt install -y build-essential libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev libsystemd-dev"
+  apt install -y build-essential libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev libsystemd-dev > /dev/null
 
-  # Download ustreamer source and build it
-  cd /tmp; rm -rf ustreamer
-  #git clone --depth=1 https://github.com/pikvm/ustreamer
-  ### Added on 03/13/22 -- use my fork of ustreamer 4.13 in case the ustreamer code gets updated to 5.0
-  ### ustreamer 5.0 uses diferent method to perform hardware encoding (can't use OMX encoder anymore)
-  git clone --depth=1 https://github.com/srepac/ustreamer
+  KERNELVER=$( uname -r | cut -d'.' -f1,2 )
+  case "$KERNELVER" in 
+    "5.10")
+      # Download ustreamer source and build it
+      cd /tmp; rm -rf ustreamer
+      #git clone --depth=1 https://github.com/pikvm/ustreamer
+      ### Added on 03/13/22 -- use my fork of ustreamer 4.13 in case the ustreamer code gets updated to 5.0
+      ### ustreamer 5.0 uses diferent method to perform hardware encoding (can't use OMX encoder anymore)
+      git clone --depth=1 https://github.com/srepac/ustreamer
 
-  cd ustreamer
-  if [[ $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'=' -f2 ) == "bullseye" ]]; then
-    # 64-bit OS -OR- bullseye (removed omx headers), so don't compile OMX support for ustreamer
-    make WITH_OMX=0 WITH_GPIO=1 WITH_SETPROCTITLE=1
-  else
-    # hardware OMX support with 32-bit ONLY (non bullseye)
-    make WITH_OMX=1 WITH_GPIO=1 WITH_SETPROCTITLE=1
-  fi
+      cd ustreamer
+      if [[ $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'=' -f2 ) == "bullseye" ]]; then
+        # 64-bit OS -OR- bullseye (removed omx headers), so don't compile OMX support for ustreamer
+        make WITH_OMX=0 WITH_GPIO=1 WITH_SETPROCTITLE=1 WITH_SYSTEMD=1
+      else
+        # hardware OMX support with 32-bit ONLY (non bullseye)
+        make WITH_OMX=1 WITH_GPIO=1 WITH_SETPROCTITLE=1 WITH_SYSTEMD=1
+      fi
+      ;;
+    "5.15")
+      # Download ustreamer 5.x source and build it
+      cd /tmp; rm -rf ustreamer-m2m/
+      wget https://github.com/pikvm/ustreamer/archive/refs/heads/m2m.zip 2> /dev/null
+      unzip m2m.zip
+      cd ustreamer-m2m/
+
+      make WITH_GPIO=1 WITH_SYSTEMD=1
+      ;;
+    *)
+      echo "Kernel version ${KERNELVER} is not 5.10 or 5.15.  Exiting."
+      exit 1
+      ;;
+  esac
+
   make install
   # kvmd service is looking for /usr/bin/ustreamer
-  ln -s /usr/local/bin/ustreamer /usr/bin/
-  ln -s /usr/local/bin/ustreamer-dump /usr/bin/
+  ln -sf /usr/local/bin/ustreamer /usr/bin/
+  ln -sf /usr/local/bin/ustreamer-dump /usr/bin/
 
   echo -n "ustreamer version/features: "; ustreamer -v && ustreamer --features
 } # end build-ustreamer
@@ -545,16 +569,32 @@ install-dependencies() {
 
       ### 20220215: build ttyd if running on 64-bit OS or any version of bullseye
       ### 20220218: build ttyd for all OS
-      echo "-> Building ttyd (webterm) from source ..."
-      cd /tmp; rm -rf ttyd
-      apt-get install -y build-essential cmake git libjson-c-dev libwebsockets-dev
-      git clone https://github.com/tsl0922/ttyd.git
-      cd ttyd && mkdir build && cd build
-      cmake ..
-      make && make install
-      cp /usr/local/bin/ttyd /usr/bin/
+#      echo "-> Building ttyd (webterm) from source ..."
+#      cd /tmp; rm -rf ttyd
+#      apt-get install -y build-essential cmake git libjson-c-dev libwebsockets-dev
+#      git clone https://github.com/tsl0922/ttyd.git
+#      cd ttyd && mkdir build && cd build
+#      cmake ..
+#      make && make install
+#      cp /usr/local/bin/ttyd /usr/bin/
 
-    else
+      case $( uname -m ) in
+	      "aarch64")
+	        ARCH="arm64";;    # 64-bit bullseye
+	      "armv7l")
+	        ARCH="armhf";;    # 32-bit bullseye
+	      "armv6l")
+	        ARCH="armel";;    # any zero w 1st gen running bullseye
+	      *)
+	        echo "Unsupported architecture.  Exiting."; exit 1;;
+      esac
+
+      ### added on 03/28/22 -- building ttyd didn't work as expected so we're installing ttyd from deb package.
+      ### install the relevant debian pkg based on architecture as above
+      cd /tmp; wget http://ftp.us.debian.org/debian/pool/main/t/ttyd/ttyd_1.6.3-3~bpo11+1_${ARCH}.deb 2> /dev/null
+      dpkg -i ttyd_1.6.3-3~bpo11+1_${ARCH}.deb
+
+    else    # raspbian buster requires more dependencies as per below
       ### 20220215 issue: ttyd won't compile on buster so use the manual download of deb packages and install
       ### required dependent packages for ttyd ###
       cd /tmp
@@ -832,5 +872,13 @@ wget https://kvmnerds.com/RPiKVM/pistat -O /usr/local/bin/pistat > /dev/null 2> 
 wget https://kvmnerds.com/RPiKVM/pi-temp -O /usr/local/bin/pi-temp > /dev/null 2> /dev/null
 wget https://kvmnerds.com/RPiKVM/pikvm-info -O /usr/local/bin/pikvm-info > /dev/null 2> /dev/null
 chmod +x /usr/local/bin/pi*
+
+# required for pikvm-info to run properly as it is looking for vcgencmd in /usr/local/bin/
+# this uses the correct vcgencmd binary for the running 32/64-bit OS
+rm -f /opt/vc/bin/vcgencmd; ln -sf /usr/bin/vcgencmd /opt/vc/bin/vcgencmd
+ln -sf /opt/vc/bin/vcgencmd /usr/local/bin/
+
+# fix symlink of /bin/sh to bash not dash in raspbian
+ln -sf bash /bin/sh
 
 echo "Raspbian pikvm installer script completed on $( date )" | tee -a $LOGFILE
