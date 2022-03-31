@@ -1,5 +1,5 @@
 #!/bin/bash
-# created by @srepac   08/09/2011   srepac@kvmnerds.com
+# created by @srepac   08/09/2021   srepac@kvmnerds.com
 # Scripted Installer of Pi-KVM on Raspbian 32-bit and 64-bit RPi 3A+, 4B, 400, Zero (2) W, and CM4 (CSI0)
 #
 # *** MSD is disabled by default ***
