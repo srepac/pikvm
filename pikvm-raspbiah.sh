@@ -282,7 +282,6 @@ install-params() {
 
         kvmd-platform-v2-hdmi-rpi4|kvmd-platform-v3-hdmi-rpi4)
           ## only thing required is /boot/config.txt entry and /etc/modules to load tc358743 support
-          #echo "$BITS OS does NOT support CSI adapter."; exit 1
           echo "CSI Capture device selected is supported."
           ;;
 
@@ -304,7 +303,6 @@ install-params() {
 
         kvmd-platform-v2-hdmi-rpi4|kvmd-platform-v3-hdmi-rpi4)
           echo "CSI Capture device selected is supported."
-          #CALL install-tc358743
           ;;
 
         *)
@@ -318,7 +316,6 @@ install-params() {
       case $platform in
         kvmd-platform-v2-hdmi-zerow)
           echo "CSI Capture device selected is supported."
-          #CALL install-tc358743
           ;;
 
         *)
