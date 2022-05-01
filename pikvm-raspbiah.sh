@@ -1,5 +1,5 @@
 #!/bin/bash
-# Written by @srepac    NEWER installer for Raspbian PiKVM -- uses mostly deb pacakges
+# Written by @srepac    NEWER installer for Raspbian PiKVM -- uses mostly deb packages
 # Filename:  pikvm-raspbian.sh
 ###
 # This script performs the following:
