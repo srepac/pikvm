@@ -1,5 +1,5 @@
 #!/bin/bash
-# Written by @srepac    NEWER installer for Raspbian PiKVM -- uses mostly deb packages
+# Written by @srepac    NEWER installer for Raspbian PiKVM -- uses mostly deb pacakges
 # Filename:  pikvm-raspbian.sh
 ###
 # This script performs the following:
@@ -12,10 +12,13 @@ deb [trusted=yes] https://kvmnerds.com/debian /
 #  2. Sets up /boot/config.txt (proper gpu_mem based on board) and /etc/modules based on platform chosen.
 #  3. Shows you command to install and will even run the install if -f option is passed in.
 ###
-VERSION="1.0"
-: ' As of 20220410 2330 PDT '
+VERSION="1.3"
+: ' As of 20220417 1000 PDT '
 # CHANGELOG:
 # 1.0  20220410  created script
+# 1.1  20220411  oled package (128x32 normal, 128x32 flipped 180 degrees, or 128x64)
+# 1.2  20220412  add kernel version check... only allow 5.15 version
+# 1.3  20220417  refactoring
 ###
 usage() {
   echo "$0 [-f]   where -f performs the actual install, otherwise show command only"
@@ -57,6 +60,12 @@ error-checking() {
       exit 1
       ;;
   esac
+
+  KERNELVER=$( uname -r | cut -d'.' -f1,2 )
+  case "$KERNELVER" in
+    "5.15") printf "+ Kernel version $( uname -r ) ... OK\n";;
+    *) printf "Kernel version $( uname -r ).  Please upgrade to 5.15.x.  Exiting.\n"; exit 1;;
+  esac
 } # end error-checking
 
 
@@ -71,6 +80,7 @@ initialize() {
     printf "+ $SOURCELIST already exists.\n\n"
   fi
 
+  ### make sure that /tmp/pacmanquery exists by installing/running pikvm-info script
   if [ ! -e /tmp/pacmanquery ]; then
     if [ ! -e /usr/local/bin/pikvm-info ]; then
       wget -O /usr/local/bin/pikvm-info https://kvmnerds.com/PiKVM/pikvm-info 2> /dev/null
@@ -88,18 +98,27 @@ get-platform() {
     "zero2W"|"zero2")
       # force platform to only use v2-hdmi for zero2w
       platform="kvmd-platform-v2-hdmi-zero2w"
+      echo "Auto setting platform for Pi $model"
       export GPUMEM=96
+      oled="none"
+      fan="none"
       ;;
 
     "zeroW")
       # force platform to only use v2-hdmi for zerow
       platform="kvmd-platform-v2-hdmi-zerow"
+      echo "Auto setting platform for Pi $model"
       export GPUMEM=64
+      oled="none"
+      fan="none"
       ;;
 
     "3A"|"3APlus")
       platform="kvmd-platform-v2-hdmi-rpi4"     # use rpi4 platform which supports webrtc
+      echo "Auto setting platform for Pi $model"
       export GPUMEM=96
+      CALL get-oled
+      fan="kvmd-fan"
       ;;
 
     "3B"|"2B"|"2A"|"B"|"A")
@@ -117,20 +136,25 @@ get-platform() {
           *) printf "\nTry again.\n"; tryagain=1;;
         esac
       done
+      CALL get-oled
+      fan="kvmd-fan"
       ;;
 
     "400")
       platform="kvmd-platform-v2-hdmiusb-rpi4"
+      echo "Auto setting platform for Pi $model"
       export GPUMEM=256
+      CALL get-oled
+      fan="none"
       ;;
 
     *)   ### default to use rpi4 platform image (this may also work with other SBCs with OTG)
       tryagain=1
       while [ $tryagain -eq 1 ]; do
         printf "Choose which capture device you will use:\n
-  1 - USB dongle   32/64-bit
-  2 - v2 CSI     32-bit only
-  3 - V3 HAT     32-bit only\n"
+  1 - USB dongle
+  2 - v2 CSI
+  3 - v3 HAT\n"
         read -p "Please type [1-3]: " capture
         case $capture in
           1) platform="kvmd-platform-v2-hdmiusb-rpi4"; export GPUMEM=256; tryagain=0;;
@@ -139,6 +163,8 @@ get-platform() {
           *) printf "\nTry again.\n"; tryagain=1;;
         esac
       done
+      CALL get-oled
+      fan="kvmd-fan"
       ;;
 
   esac
@@ -164,7 +190,7 @@ enable_uart=1
 #dtoverlay=tc358743
 dtoverlay=disable-bt
 dtoverlay=dwc2,dr_mode=peripheral
-dtparam=act_led_gpio=13
+#dtparam=act_led_gpio=13
 
 # HDMI audio capture
 #dtoverlay=tc358743-audio
@@ -176,12 +202,14 @@ dtparam=act_led_gpio=13
 dtparam=i2c_arm=on
 
 # Clock
-dtoverlay=i2c-rtc,pcf8563
+#dtoverlay=i2c-rtc,pcf8563
 FIRMWARE
 
       else   # v0 hdmiusb
 
         cat <<SERIALUSB >> /boot/config.txt
+# srepac custom configs
+###
 hdmi_force_hotplug=1
 gpu_mem=16
 enable_uart=1
@@ -198,7 +226,7 @@ SERIALUSB
 
     else   # CSI platforms
 
-      if [ $SERIAL -ne 1 ]; then   # v2 CSI
+      if [ $SERIAL -ne 1 ]; then   # v2 CSI or v3 HAT
 
         cat <<CSIFIRMWARE >> /boot/config.txt
 # srepac custom configs
@@ -227,6 +255,8 @@ CSIFIRMWARE
       else   # v0 CSI
 
         cat <<CSISERIAL >> /boot/config.txt
+# srepac custom configs
+###
 hdmi_force_hotplug=1
 gpu_mem=16
 enable_uart=1
@@ -264,6 +294,27 @@ CSISERIAL
 } # end of necessary boot files
 
 
+get-oled() {
+  echo
+  tryagain=1
+  while [ $tryagain -eq 1 ]; do
+    printf "Choose installed oled screen:\n
+  1 - 128x32 (default)
+  2 - 128x32 flipped 180 degrees
+  3 - 128x64
+  4 - none\n"
+    read -p "Please type [1-4]: " selection
+    case $selection in
+      1) oled="kvmd-oled "; tryagain=0;;
+      2) oled="kvmd-oled-flipped"; tryagain=0;;
+      3) oled="kvmd-oled64"; tryagain=0;;
+      4) oled="none"; tryagain=0;;
+      *) printf "\nTry again.\n"; tryagain=1;;
+    esac
+  done
+}
+
+
 install-params() {
   # Determine Pi board, OS and bit version
   ARCH=$( uname -m )
@@ -282,6 +333,7 @@ install-params() {
 
         kvmd-platform-v2-hdmi-rpi4|kvmd-platform-v3-hdmi-rpi4)
           ## only thing required is /boot/config.txt entry and /etc/modules to load tc358743 support
+          #echo "$BITS OS does NOT support CSI adapter."; exit 1
           echo "CSI Capture device selected is supported."
           ;;
 
@@ -329,6 +381,9 @@ install-params() {
 
   printf "\n-> Install instructions:\n"
   echo " platform:  $platform"
+  echo " oled:      $oled"
+  echo " fan:       $fan"
+  echo " model:     $model"
   echo " board:     $board"
   echo " ARCH:      $ARCH"
   echo " OS bits:   $BITS"
@@ -336,24 +391,26 @@ install-params() {
 
 
 get-installed() {
-  printf "\n-> Getting list of installed packages...\n"
-  apt update > /dev/null 2>&1
+  KVMDPKGS="/tmp/kvmd-packages"; /bin/rm -f $KVMDPKGS
 
-  ### show current installed
-  if [ -e /tmp/pacmanquery ]; then
-    if [ $( egrep 'kvmd|janus|ustreamer' /tmp/pacmanquery | wc -l ) -gt 0 ]; then
-      printf "\nCurrent installed kvmd, janus, and ustreamer packages:\n"
-      egrep 'kvmd|janus|ustreamer' /tmp/pacmanquery
-    else
-      echo "No kvmd, janus, or ustreamer packages currently installed."
-    fi
+  if [ ! -e $KVMDPKGS.sorted ]; then
+    echo "-> Getting list of available/installed janus, kvmd, and ustreamer packages..."
+    apt update > /dev/null 2>&1
+
+    ### better: show available packages from repo
+    apt-cache search "kvmd|janus|ustreamer" | egrep '^kvmd|^janus|^ustreamer' >> $KVMDPKGS
+    ### this only shows what is installed
+    #egrep 'kvmd|janus|ustreamer' /tmp/pacmanquery | awk '{print $2, $1}' >> $KVMDPKGS
+    cat $KVMDPKGS | sort -r -u > $KVMDPKGS.sorted
   fi
 
-  KVMDPKGS="/tmp/kvmd-packages"; /bin/rm -f $KVMDPKGS $KVMDPKGS.sorted
-  apt-cache search ustreamer >> $KVMDPKGS
-  apt-cache search janus >> $KVMDPKGS
-  apt-cache search kvmd >> $KVMDPKGS
-  cat $KVMDPKGS | sort -r -u > $KVMDPKGS.sorted
+  ### show current installed
+  if [ $( egrep -c 'kvmd|janus|ustreamer' /tmp/pacmanquery ) -gt 0 ]; then
+    printf "\nCurrent installed janus, kvmd, and ustreamer packages:\n"
+    egrep 'kvmd|janus|ustreamer' /tmp/pacmanquery
+  else
+    echo "No janus, kvmd, or ustreamer packages currently installed."
+  fi
 
   echo
 } # end get-installed
@@ -404,16 +461,18 @@ fix-motd() {
 show-commands() {
   # Setup commands to install other packages before the main kvmd package
   if [[ $board == "rpi4" && $BITS == "32bit" ]]; then
-    OTHERS="apt install -y $( egrep "${BITS}|$platform" $KVMDPKGS.sorted | grep -v zerow | awk '{print $1}' | tr '\n' ' ' )"
-  else
-    OTHERS="apt install -y $( egrep "${BITS}|$platform" $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | grep -v zerow | awk '{print $1}' | tr '\n' ' ' )"
+  elif [[ $board == "zerow" ]]; then
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | grep -v 'kvmd-webterm-32bit ' | awk '{print $1}' | tr '\n' ' ' )"
+  else  ### 64bit OS
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
   fi
   KVMD="$( egrep kvmd-raspbian $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
 
   # first install janus, ustreamer, platform, webterm, and lastly, kvmd-raspbian
   INSTALLCMD="$OTHERS $KVMD"
 
-  printf "\n-> Copy/Paste below command to install PiKVM on your Debian-based system manually.\n"
+  printf "\n-> Copy/Paste below commands to install PiKVM on your Debian-based system manually.\n"
   printf "\n${INSTALLCMD}\n"
 
   if [[ ${f_flag} -eq 1 ]]; then
@@ -451,21 +510,16 @@ CALL() {  ### show banner and run function passed in
 
 
 ### MAIN STARTS HERE ###
-printf "Running new installer version $VERSION that uses deb packages\n\n"
-## required in order to keep track of running kvmd processes and sockets
-mkdir -p /run/kvmd
-chown kvmd:kvmd /run/kvmd
-chmod 775 /run/kvmd
-
+printf "Running new @srepac installer version $VERSION that uses deb packages\n\n"
 if [ -e /usr/local/bin/rw ]; then rw; fi
 error-checking $@
 CALL initialize
+CALL get-installed
 CALL get-platform
 CALL boot-files
 CALL fixes
 CALL otg-devices
 CALL install-params
-CALL get-installed
-if [ $( grep -c 'port by @srepac' /etc/motd ) -eq 0 ]; then fix-motd; fi
+if [ $( grep -c 'port by @srepac' /etc/motd ) -eq 0 ]; then CALL fix-motd; fi
 CALL show-commands
 if [ -e /usr/local/bin/ro ]; then ro; fi
