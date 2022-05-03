@@ -435,13 +435,13 @@ fix-motd() {
     cp /etc/motd /etc/motd.orig; rm /etc/motd
 
     printf "
-         ____  ____  _        _  ____     ____  __
-        |  _ \|  _ \(_)      | |/ /\ \   / /  \/  |
-        | |_) | |_) | |  __  | ' /  \ \ / /| |\/| |  software by @mdevaev
-        |  _ <|  __/| | (__) | . \   \ V / | |  | |
-        |_| \_\_|   |_|      |_|\_\   \_/  |_|  |_|  port by @srepac
+         ____  ____  _  _  ____     ____  __
+        |  _ \|  _ \(_)| |/ /\ \   / /  \/  |
+        | |_) | |_) | || ' /  \ \ / /| |\/| |  software by @mdevaev
+        |  _ <|  __/| || . \   \ V / | |  | |
+        |_| \_\_|   |_||_|\_\   \_/  |_|  |_|  port by @srepac
 
-    Welcome to Raspbian-KVM - Open Source IP-KVM based on Raspberry Pi
+    Welcome to Raspbian PiKVM - Open Source IP-KVM based on Raspberry Pi
     ____________________________________________________________________________
 
     To prevent kernel messages from printing to the terminal use \"dmesg -n 1\".
@@ -450,6 +450,7 @@ fix-motd() {
 
     Useful links:
       * https://pikvm.org
+      * https://github.com/srepac/pikvm
 
 " > /etc/motd
 
