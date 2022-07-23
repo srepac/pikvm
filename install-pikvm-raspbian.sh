@@ -13,8 +13,8 @@
 '
 # NOTE:  This was tested on a new install of raspbian desktop and lite versions, but should also work on an existing install.
 #
-# Last change 20220328 0720 PDT
-VER=4.2
+# Last change 20220723 0745 PDT
+VER=5.5
 #
 # Changelog:
 # 1.0   from August 2021
@@ -51,6 +51,13 @@ VER=4.2
 # 4.0   03/27/22 - build ustreamer 5.x (kernel 5.15) or 4.x (kernel 5.10) depending on kernel version
 # 4.1   03/27/22 - updated cmd_remove section to only apply when kernel 5.10 AND ( aarch64 OR any bullseye variant )
 # 4.2   03/31/22 - consolidated ttyd compile
+# 4.3   05/06/22 - add tools.js and pixel perfect fixes; download/build most recent ustreamer 5.x
+# 5.0   06/24/22 - allow install on Ubuntu 22.04 (which has python 3.10 installed)
+# 5.1   06/30/22 - fix python pillow issue
+# 5.2   07/07/22 - fix python pillow again
+# 5.3   07/18/22 - fix ttyd not compiling for zerow
+# 5.4   07/21/22 - consolidate apt install dependencies into one line; note: python dependencies are still one at a time
+# 5.5   07/23/22 - consolidate installing all python dependencies into one line
 
 set +x
 # Added on 03/06/22 -- check to make sure user is running the script as root.
@@ -60,7 +67,15 @@ if [[ $WHOAMI != "root" ]]; then
   exit 1
 fi
 
-export PIKVMREPO="https://kvmnerds.com/REPO"
+### added on 06/24/22 -- special case for ubuntu on pi -- required for /boot/config.txt changes
+if [[ $( grep ^ID= /etc/os-release | cut -d'=' -f2 ) == "ubuntu" ]]; then
+  ln -sf /boot/firmware/config.txt /boot/config.txt
+fi
+
+# required
+apt install make -y > /dev/null 2>&1
+
+export PIKVMREPO="https://kvmnerds.com/REPO/NEW"
 export KVMDCACHE="/var/cache/kvmd"; mkdir -p ${KVMDCACHE}
 export PKGINFO="${KVMDCACHE}/packages.txt"
 export LOGFILE="${KVMDCACHE}/installer-$(date +%Y%m%d-%H:%M:%S).log"; touch $LOGFILE
@@ -68,7 +83,7 @@ export LOGFILE="${KVMDCACHE}/installer-$(date +%Y%m%d-%H:%M:%S).log"; touch $LOG
 ### 02/25/2022 -- script does not work on raspbian with python 3.10 and higher or 3.6 and lower
 PYTHONVER=$( python3 -V | awk '{print $2}' | cut -d'.' -f1,2 )
 case $PYTHONVER in
-  "3.7"|"3.9")   # only supported versions of python
+  "3.7"|"3.9"|"3.10")   # only supported versions of python
     ;;
   *)
     printf "\nYou are running python ${PYTHONVER}.  Installer (for kvmd 3.47) only works with python 3.7 -OR- 3.9.\n"
@@ -161,11 +176,17 @@ BULLSEYEOVERRIDE
 } # end create-override
 
 install-python-packages() {
-  for i in aiofiles aiohttp appdirs asn1crypto async-timeout bottle cffi chardet click colorama cryptography dateutil dbus hidapi idna libgpiod marshmallow more-itertools multidict netifaces packaging passlib pillow ply psutil pycparser pyelftools pyghmi pygments pyparsing requests semantic-version serial setproctitle setuptools six spidev systemd tabulate urllib3 wrapt xlib yaml yarl
+  PYPKGS=""
+
+  for i in aiofiles aiohttp appdirs asn1crypto async-timeout bottle cffi chardet click colorama cryptography dateutil dbus hidapi idna libgpiod marshmallow more-itertools multidict netifaces packaging passlib pillow ply psutil pycparser pyelftools pyghmi pygments pyparsing requests semantic-version serial setproctitle setuptools six spidev systemd tabulate urllib3 wrapt xlib yaml yarl serial-asyncio
   do
-    echo "apt-get install python3-$i -y"
-    apt-get install python3-$i -y > /dev/null
+    ### setup list of packages to install (one after another)
+    PYPKGS="$PYPKGS python3-$i"
   done
+
+  ### install all of them at once instead of one at a time
+  echo "apt-get install -y $PYPKGS"
+  apt-get install -y $PYPKGS > /dev/null
 } # end install python-packages
 
 otg-devices() {
@@ -286,7 +307,7 @@ CSISERIAL
         echo "tc358743" >> /etc/modules
       fi
 
-      install-tc358743
+      #install-tc358743
 
     fi
   fi  # end of check if entries are already in /boot/config.txt
@@ -414,17 +435,26 @@ install-kvmd-pkgs() {
   INSTLOG="${KVMDCACHE}/installed_ver.txt"; rm -f $INSTLOG
   date > $INSTLOG
 
+  case $PYTHONVER in
+    "3.7"|"3.9") KVMDVER="3.47";;
+    "3.10") KVMDVER="3.121";;  ### change to use most current version from pikvm github
+    *) exit 1;;
+  esac
+
   # uncompress platform package first
-  i=$( ls ${KVMDCACHE}/${platform}-*.tar.xz )
+  i=$( ls ${KVMDCACHE}/${platform}-${KVMDVER}*.tar.xz )
   echo "-> Extracting package $i into /" >> $INSTLOG
   tar xfJ $i
 
-  # uncompress kvmd-{version} and kvmd-webterm packages
-  for i in $( ls ${KVMDCACHE}/*.tar.xz | egrep 'kvmd-[0-9]|webterm' )
-  do
-    echo "-> Extracting package $i into /" >> $INSTLOG
-    tar xfJ $i
-  done
+  # uncompress kvmd-{KVMDVER}
+  i=$( ls ${KVMDCACHE}/kvmd-${KVMDVER}*.tar.xz )
+  echo "-> Extracting package $i into /" >> $INSTLOG
+  tar xfJ $i
+
+  # uncompress kvmd-webterm package
+  i=$( ls ${KVMDCACHE}/*webterm*.tar.xz )
+  echo "-> Extracting package $i into /" >> $INSTLOG
+  tar xfJ $i
 
   # uncompress janus package if /usr/bin/janus doesn't exist
   if [ ! -e /usr/bin/janus ]; then
@@ -485,7 +515,7 @@ build-ustreamer() {
 
   KERNELVER=$( uname -r | cut -d'.' -f1,2 )
   case "$KERNELVER" in
-    "5.10")
+    5.10)
       # Download ustreamer source and build it
       cd /tmp; rm -rf ustreamer
       #git clone --depth=1 https://github.com/pikvm/ustreamer
@@ -501,18 +531,25 @@ build-ustreamer() {
         make WITH_OMX=1 WITH_GPIO=1 WITH_SETPROCTITLE=1 WITH_SYSTEMD=1
       fi
       ;;
-    "5.15")
+    5.15|5.16|5.17|5.18|5.19|5.20)
       # Download ustreamer 5.x source and build it
       ### ustreamer 5.x uses different method to perform hardware encoding (relies on kernel 5.15)
-      cd /tmp; rm -rf ustreamer-m2m/
-      wget https://github.com/pikvm/ustreamer/archive/refs/heads/m2m.zip 2> /dev/null
-      unzip m2m.zip
-      cd ustreamer-m2m/
+
+      ### this downloads/installs ustreamer 5.2
+      #cd /tmp; rm -rf ustreamer-m2m/
+      #wget https://github.com/pikvm/ustreamer/archive/refs/heads/m2m.zip 2> /dev/null
+      #unzip m2m.zip
+      #cd ustreamer-m2m/
+
+      ### this downloads/installs most up to date ustreamer
+      cd /tmp; rm -rf ustreamer
+      git clone --depth=1 https://github.com/pikvm/ustreamer
+      cd ustreamer
 
       make WITH_GPIO=1 WITH_SYSTEMD=1
       ;;
     *)
-      echo "Kernel version ${KERNELVER} is not 5.10 or 5.15.  Exiting."
+      echo "Kernel version ${KERNELVER} is not 5.10 or 5.15 and higher.  Exiting."
       exit 1
       ;;
   esac
@@ -541,11 +578,26 @@ install-dependencies() {
   echo "-> Installing dependencies for pikvm"
 
   apt-get update > /dev/null
-  for i in nginx python3 net-tools bc expect v4l-utils iptables vim dos2unix screen tmate nfs-common gpiod ffmpeg dialog iptables dnsmasq git
-  do
-    echo "apt-get install -y $i"
-    apt-get install -y $i > /dev/null
-  done
+  #for i in nginx python3 net-tools bc expect v4l-utils iptables vim dos2unix screen tmate nfs-common gpiod ffmpeg dialog iptables dnsmasq git
+  #do
+  #  echo "apt-get install -y $i"
+  #  apt-get install -y $i > /dev/null
+  #done
+
+  ### 07/21/22 -- consolidated all the apt install into one line
+  echo "apt install -y nginx python3 net-tools bc expect v4l-utils iptables vim dos2unix screen tmate nfs-common gpiod ffmpeg dialog iptables dnsmasq git"
+  apt install -y nginx python3 net-tools bc expect v4l-utils iptables vim dos2unix screen tmate nfs-common gpiod ffmpeg dialog iptables dnsmasq git > /dev/null
+
+  # added on 06/24/22
+  echo "apt install -y python3-pip"
+  apt install -y python3-pip > /dev/null
+  echo "pip3 install dbus-next"
+  pip3 install dbus-next > /dev/null
+
+  # added on 06/30/22 -- fix issue with kvmd not starting due to "cannot import name '_imaging' from 'PIL'"
+  # ... as reported by @bobiverse on a pi zero w running raspbian bullseye 32-bit
+  #pip3 remove Pillow > /dev/null
+  #pip3 install Pillow > /dev/null
 
   install-python-packages
 
@@ -583,7 +635,7 @@ install-dependencies() {
         "armv7l")
           ARCH="armhf";;    # 32-bit bullseye
         "armv6l")
-          ARCH="armel";;    # any zero w 1st gen running bullseye
+          ARCH="armhf";;    # any zero w 1st gen running bullseye
         *)
           echo "Unsupported architecture.  Exiting."; exit 1;;
       esac
@@ -651,7 +703,14 @@ fix-nginx-symlinks() {
   python-pkg-dir
 
   if [ ! -e $PYTHONDIR/kvmd ]; then
-    ln -s /usr/lib/python3.9/site-packages/kvmd* ${PYTHONDIR}
+    case $PYTHONVER in
+      "3.7"|"3.9")
+        ln -s /usr/lib/python3.9/site-packages/kvmd* ${PYTHONDIR}
+        ;;
+      "3.10")
+        ln -s /usr/lib/python3.10/site-packages/kvmd* ${PYTHONDIR}
+        ;;
+    esac
   fi
 } # end fix-nginx-symlinks
 
@@ -801,6 +860,45 @@ POINTER
   fi
 } # end change-pointer to crosshair
 
+fix-tools() {
+  cd /usr/share/kvmd/web/share/js/
+
+  ls -l tools.js*
+  mv tools.js tools.js.$( date +%Y%m%d )
+  echo -n "Getting most current tools.js file..."
+  wget https://github.com/pikvm/kvmd/raw/720299e3863691f518a689ffda2bcb3a63ebd35d/web/share/js/tools.js > /dev/null 2>&1
+  echo " done"
+  ls -l tools.js*
+} # end fix-tools (update tools.js to allow kvmd webstream to be used in iframe)
+
+update-css() {  ### added on 04/30/22
+  printf "Updating CSS files as per pikvm/pikvm#599: fixed webui windows oversizing\n\n"
+
+  TMPFILE="/tmp/pixelfix"; /bin/rm -f $TMPIFILE
+  wget https://github.com/pikvm/kvmd/commit/c161d22dbb6c29643b472cffd732868bc4a50615 -O $TMPFILE > /dev/null 2>&1
+
+  for i in $( grep .css $TMPFILE | grep data-path | cut -d'"' -f2 )
+  do
+    SRC="/usr/share/kvmd/$i"
+    DEST="/usr/share/kvmd/$i.orig"
+
+    # backup the original files, jic
+    if [ ! -e $DEST ]; then
+      cp $SRC $DEST
+    fi
+
+    echo " $SRC"
+
+    wget https://raw.githubusercontent.com/pikvm/kvmd/master/$i -O $SRC > /dev/null 2>&1
+  done
+} # end of CSS updates
+
+fix-pillow() {  ### added on 06/30/22
+  #apt install python3-pip
+  pip3 uninstall Pillow
+} # end fix python pillow
+
+
 
 ### MAIN STARTS HERE ###
 # Install is done in two parts
@@ -843,7 +941,10 @@ else
   check-kvmd-works
   restore-configs | tee -a $LOGFILE
   change-pointer
+  fix-tools
+  update-css
   start-kvmd-svcs | tee -a $LOGFILE
+  fix-pillow
 
   printf "\nCheck kvmd devices\n\n" | tee -a $LOGFILE
   ls -l /dev/kvmd* | tee -a $LOGFILE
