@@ -12,16 +12,23 @@ deb [trusted=yes] https://kvmnerds.com/debian /
 #  2. Sets up /boot/config.txt (proper gpu_mem based on board) and /etc/modules based on platform chosen.
 #  3. Shows you command to install and will even run the install if -f option is passed in.
 ###
-VERSION="1.3"
-: ' As of 20220417 1000 PDT '
+VERSION="1.9"
+: ' As of 20220722 1545 PDT '
 # CHANGELOG:
 # 1.0  20220410  created script
 # 1.1  20220411  oled package (128x32 normal, 128x32 flipped 180 degrees, or 128x64)
 # 1.2  20220412  add kernel version check... only allow 5.15 version
 # 1.3  20220417  refactoring
+# 1.4  20220506  allow kernels 5.15 and higher (future proofing up to kernel 5.20)
+# 1.5  20220630  fix python pillow issue
+# 1.6  20220706  fix python pillow issue #2 - pip3 uninstall Pillow
+# 1.7  20220721  error checking to only allow debian and raspbian -- moved ubuntu to unsupported
+# 1.8  20220722  allow changing platforms/oled by removing old and installing new platform/oled
+# 1.9  20220722  don't clobber working ustreamer/janus
 ###
+
 usage() {
-  echo "$0 [-f]   where -f performs the actual install, otherwise show command only"
+  echo "$0 [-f]   where -f performs the actual install, otherwise show commands only"
   exit 1
 } # end usage
 
@@ -52,7 +59,7 @@ error-checking() {
 
   OS=$( grep ^ID= /etc/os-release | cut -d'=' -f2 )
   case $OS in
-    debian|raspbian|ubuntu)
+    debian|raspbian)
       printf "+ OSID [ $OS ] is supported by installer.\n"
       ;;
     *)
@@ -63,8 +70,8 @@ error-checking() {
 
   KERNELVER=$( uname -r | cut -d'.' -f1,2 )
   case "$KERNELVER" in
-    "5.15") printf "+ Kernel version $( uname -r ) ... OK\n";;
-    *) printf "Kernel version $( uname -r ).  Please upgrade to 5.15.x.  Exiting.\n"; exit 1;;
+    5.15|5.16|5.17|5.18|5.19|5.20) printf "+ Kernel version $( uname -r ) ... OK\n";;
+    *) printf "Kernel version $( uname -r ).  Please upgrade to 5.15.x or higher.  Exiting.\n"; exit 1;;
   esac
 } # end error-checking
 
@@ -87,6 +94,7 @@ initialize() {
       chmod +x /usr/local/bin/pikvm-info
     fi
     /usr/local/bin/pikvm-info > /dev/null 2>&1
+    #/bin/rm -f /usr/local/bin/pikvm-info
   fi
 } # end initialize
 
@@ -171,7 +179,7 @@ get-platform() {
 
   echo
   echo "Platform selected -> $platform"
-  echo
+  #echo
 } # end get-platform
 
 
@@ -316,6 +324,7 @@ get-oled() {
 
 
 install-params() {
+  echo
   # Determine Pi board, OS and bit version
   ARCH=$( uname -m )
 
@@ -340,6 +349,7 @@ install-params() {
         *)
           echo "Unknown platform selected.  Exiting."; exit 1 ;;
       esac
+
     ;;
 
     armv7l)
@@ -360,6 +370,7 @@ install-params() {
         *)
           echo "$BITS OS does NOT support capture device."; exit 1 ;;
       esac
+
       ;;
 
     armv6l)
@@ -373,6 +384,7 @@ install-params() {
         *)
           echo "$BITS OS does NOT support capture device."; exit 1 ;;
       esac
+
       ;;
 
     *)
@@ -387,6 +399,7 @@ install-params() {
   echo " board:     $board"
   echo " ARCH:      $ARCH"
   echo " OS bits:   $BITS"
+  echo " OS:        $OS"
 } # end install-params
 
 
@@ -407,9 +420,21 @@ get-installed() {
   ### show current installed
   if [ $( egrep -c 'kvmd|janus|ustreamer' /tmp/pacmanquery ) -gt 0 ]; then
     printf "\nCurrent installed janus, kvmd, and ustreamer packages:\n"
-    egrep 'kvmd|janus|ustreamer' /tmp/pacmanquery
+    egrep 'kvmd|janus|ustreamer' /tmp/pacmanquery | cut -d'/' -f1
+
+    USTREAMVER=$( egrep ustreamer /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f1 )
+    JANUSVER=$( egrep janus /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f1 )
+
+    ### added on 07/22/22
+    CURRPLATFORM=$( egrep kvmd-platform /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f2 )
+    CURROLED=$( egrep kvmd-oled /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f2 )
+    echo
+    echo "CURRPLATFORM:  $CURRPLATFORM"
+    echo "CURROLED:      $CURROLED"
+    installedflag=1
   else
     echo "No janus, kvmd, or ustreamer packages currently installed."
+    installedflag=0
   fi
 
   echo
@@ -464,32 +489,92 @@ show-commands() {
   if [[ $board == "rpi4" && $BITS == "32bit" ]]; then
     OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | grep -v zerow | awk '{print $1}' | tr '\n' ' ' )"
   elif [[ $board == "zerow" ]]; then
-    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | grep -v 'kvmd-webterm-32bit ' | awk '{print $1}' | tr '\n' ' ' )"
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan|webterm-zerow" $KVMDPKGS.sorted | grep -v 'kvmd-webterm-32bit ' | awk '{print $1}' | tr '\n' ' ' )"
   else  ### 64bit OS
     OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
   fi
-  KVMD="$( egrep kvmd-raspbian $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
+
+  case $OS in
+    debian|raspbian) OS=raspbian;;
+    ubuntu) OS=ubuntu;;
+  esac
+  KVMD="$( egrep kvmd-$OS $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
 
   # first install janus, ustreamer, platform, webterm, and lastly, kvmd-raspbian
   INSTALLCMD="$OTHERS $KVMD"
 
-  printf "\n-> Copy/Paste below commands to install PiKVM on your Debian-based system manually.\n"
+
+  if [ $installedflag -eq 1 ]; then
+
+    ### added on 07/22/22 -- install ustreamer package if none exists already
+    CURRUSTREAM=$( /usr/bin/ustreamer -v )
+    if [[ "$CURRUSTREAM" != "$USTREAMVER" ]]; then
+      echo "-> Installed ustreamer version $CURRUSTREAM >= deb package version $USTREAMVER."
+
+      ### remove ustreamer-[32|64]bit from install command
+      INSTALL=$( echo $INSTALLCMD | sed "s/ustreamer-$BITS//g" )
+      INSTALLCMD="$INSTALL"
+    fi
+
+    ### added on 07/22/22 -- install janus package if none exists already
+    CURRJANUS=$( /usr/bin/janus -V | tail -1 | cut -d' ' -f2 )
+    if [[ "$CURRJANUS" != "$JANUSVER" ]]; then
+      echo "-> Installed janus version $CURRJANUS >= deb package version $JANUSVER."
+
+      ### remove janus-[32|64]bit from install command
+      INSTALL=$( echo $INSTALLCMD | sed "s/janus-$BITS//g" )
+      INSTALLCMD="$INSTALL"
+    fi
+
+    ### added on 07/22/22
+    if [[ "$CURRPLATFORM" != "$platform" ]]; then
+      echo "-> Platform change detected."
+      RMPKGS="${CURRPLATFORM}"
+    else
+      RMPKGS=""
+    fi
+
+    if [[ "$CURROLED" != "" && "$CURROLED" != "$oled" ]]; then
+      echo "-> Oled change detected."
+      RMPKGS="${RMPKGS} ${CURROLED}"
+    fi
+
+    ACTION="reinstall/change"
+
+  else
+
+    ACTION="install"
+
+  fi
+
+
+  printf "\n-> Copy/Paste below commands to $ACTION PiKVM on your Debian-based system manually.\n"
+
+  # setup remove current platform and current oled package installed
+  if [[ "$RMPKGS" != "" ]]; then
+    REMOVECMD="apt remove -y ${RMPKGS}"
+    printf "\n${REMOVECMD}"
+  else
+    REMOVECMD=""
+  fi
+
   printf "\n${INSTALLCMD}\n"
 
   if [[ ${f_flag} -eq 1 ]]; then
     CALL are-you-sure
+    ${REMOVECMD}
     ${INSTALLCMD}
   else
-    printf "\n*** NOTE:  If you want the script to run the install command, then add -f option.\n"
+    printf "\n*** NOTE:  If you want the script to run the above apt command(s), then run:\n$0 -f\n"
   fi
 } # end setup-commands
 
 
 fixes() {  ### required fixes
-  if [ ! -e /usr/bin/nginx ]; then ln -s /usr/sbin/nginx /usr/bin/; fi
-  if [ ! -e /usr/sbin/python ]; then ln -s /usr/bin/python3 /usr/sbin/python; fi
-  if [ ! -e /usr/bin/iptables ]; then ln -s /usr/sbin/iptables /usr/bin/iptables; fi
-  if [ ! -e /opt/vc/bin/vcgencmd ]; then mkdir -p /opt/vc/bin/; ln -s /usr/bin/vcgencmd /opt/vc/bin/vcgencmd; fi
+  if [ ! -e /usr/bin/nginx ]; then ln -sf /usr/sbin/nginx /usr/bin/; fi
+  if [ ! -e /usr/sbin/python ]; then ln -sf /usr/bin/python3 /usr/sbin/python; fi
+  if [ ! -e /usr/bin/iptables ]; then ln -sf /usr/sbin/iptables /usr/bin/iptables; fi
+  if [ ! -e /opt/vc/bin/vcgencmd ]; then mkdir -p /opt/vc/bin/; ln -sf /usr/bin/vcgencmd /opt/vc/bin/vcgencmd; fi
 } # end fixes
 
 
@@ -503,6 +588,21 @@ otg-devices() {  # create otg devices
 } # end otg-device creation
 
 
+fix-pillow() {
+  apt install -y python3-pip > /dev/null
+  pip3 uninstall Pillow
+} # end fix python pillow
+
+
+get-packages() {
+  export PIKVMREPO="https://kvmnerds.com/REPO"
+  export KVMDCACHE="/var/cache/kvmd"; mkdir -p ${KVMDCACHE}
+  export PKGINFO="${KVMDCACHE}/packages.txt"
+  #echo "wget ${PIKVMREPO} -O ${PKGINFO}"
+  wget ${PIKVMREPO} -O ${PKGINFO} 2> /dev/null
+} #
+
+
 CALL() {  ### show banner and run function passed in
   if [[ $d_flag -eq 1 ]]; then printf "\n --- function $1 ---\n"; fi
   $1
@@ -514,12 +614,14 @@ CALL() {  ### show banner and run function passed in
 printf "Running new @srepac installer version $VERSION that uses deb packages\n\n"
 if [ -e /usr/local/bin/rw ]; then rw; fi
 error-checking $@
+CALL get-packages
 CALL initialize
 CALL get-installed
 CALL get-platform
 CALL boot-files
 CALL fixes
 CALL otg-devices
+if [ $installedflag -eq 0 ]; then CALL fix-pillow; fi
 CALL install-params
 if [ $( grep -c 'port by @srepac' /etc/motd ) -eq 0 ]; then CALL fix-motd; fi
 CALL show-commands
