@@ -106,7 +106,7 @@ get-platform() {
     "zero2W"|"zero2")
       # force platform to only use v2-hdmi for zero2w
       platform="kvmd-platform-v2-hdmi-zero2w"
-      echo "Auto setting platform for Pi $model"
+      echo "-> Auto setting platform for Pi $model"
       export GPUMEM=96
       oled="none"
       fan="none"
@@ -115,15 +115,19 @@ get-platform() {
     "zeroW")
       # force platform to only use v2-hdmi for zerow
       platform="kvmd-platform-v2-hdmi-zerow"
-      echo "Auto setting platform for Pi $model"
+      echo "-> Auto setting platform for Pi $model"
       export GPUMEM=64
-      oled="none"
+      if [[ "$CURROLED" != " " ]]; then
+        CALL get-oled
+      else
+        oled="none"
+      fi
       fan="none"
       ;;
 
     "3A"|"3APlus")
       platform="kvmd-platform-v2-hdmi-rpi4"     # use rpi4 platform which supports webrtc
-      echo "Auto setting platform for Pi $model"
+      echo "-> Auto setting platform for Pi $model"
       export GPUMEM=96
       CALL get-oled
       fan="kvmd-fan"
@@ -150,7 +154,7 @@ get-platform() {
 
     "400")
       platform="kvmd-platform-v2-hdmiusb-rpi4"
-      echo "Auto setting platform for Pi $model"
+      echo "-> Auto setting platform for Pi $model"
       export GPUMEM=256
       CALL get-oled
       fan="none"
@@ -313,7 +317,7 @@ get-oled() {
   4 - none\n"
     read -p "Please type [1-4]: " selection
     case $selection in
-      1) oled="kvmd-oled "; tryagain=0;;
+      1) oled="kvmd-oled"; tryagain=0;;
       2) oled="kvmd-oled-flipped"; tryagain=0;;
       3) oled="kvmd-oled64"; tryagain=0;;
       4) oled="none"; tryagain=0;;
@@ -333,7 +337,7 @@ install-params() {
       BITS=64bit
       # override board to rpi4 (this takes care of z2w, 3A+, 4B, 400, and CM4)
       board=rpi4
-      platform=$( echo $platform | sed 's/zero2w/rpi4/g' )
+      platform=$( echo $platform | sed 's/zero2w/rpi4/g' )   # zero2w uses same platform as rpi4
 
       case $platform in
         kvmd-platform-v2-hdmiusb-rpi4)
@@ -342,7 +346,6 @@ install-params() {
 
         kvmd-platform-v2-hdmi-rpi4|kvmd-platform-v3-hdmi-rpi4)
           ## only thing required is /boot/config.txt entry and /etc/modules to load tc358743 support
-          #echo "$BITS OS does NOT support CSI adapter."; exit 1
           echo "CSI Capture device selected is supported."
           ;;
 
@@ -427,7 +430,7 @@ get-installed() {
 
     ### added on 07/22/22
     CURRPLATFORM=$( egrep kvmd-platform /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f2 )
-    CURROLED=$( egrep kvmd-oled /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f2 )
+    CURROLED="$( egrep kvmd-oled /tmp/pacmanquery | cut -d'/' -f1 | cut -d' ' -f2 ) "
     echo
     echo "CURRPLATFORM:  $CURRPLATFORM"
     echo "CURROLED:      $CURROLED"
@@ -487,15 +490,16 @@ fix-motd() {
 show-commands() {
   # Setup commands to install other packages before the main kvmd package
   if [[ $board == "rpi4" && $BITS == "32bit" ]]; then
-    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | grep -v zerow | awk '{print $1}' | tr '\n' ' ' )"
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled |$fan" $KVMDPKGS.sorted | grep -v zerow | awk '{print $1}' | tr '\n' ' ' )"
   elif [[ $board == "zerow" ]]; then
-    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan|webterm-zerow" $KVMDPKGS.sorted | grep -v 'kvmd-webterm-32bit ' | awk '{print $1}' | tr '\n' ' ' )"
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled |$fan|kvmd-webterm-zerow" $KVMDPKGS.sorted | grep -v 'kvmd-webterm-32bit ' | awk '{print $1}' | tr '\n' ' ' )"
   else  ### 64bit OS
-    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled|$fan" $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
+    OTHERS="apt install -y $( egrep "${BITS}|$platform|$oled |$fan" $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
   fi
 
+  ### main kvmd package name is either kvmd-raspbian or kvmd-ubuntu (future proofing)
   case $OS in
-    debian|raspbian) OS=raspbian;;
+    debian|raspbian) OS=raspbian;;   # raspbian=32-bit, debian=64-bit
     ubuntu) OS=ubuntu;;
   esac
   KVMD="$( egrep kvmd-$OS $KVMDPKGS.sorted | awk '{print $1}' | tr '\n' ' ' )"
@@ -509,7 +513,7 @@ show-commands() {
     ### added on 07/22/22 -- install ustreamer package if none exists already
     CURRUSTREAM=$( /usr/bin/ustreamer -v )
     if [[ "$CURRUSTREAM" != "$USTREAMVER" ]]; then
-      echo "-> Installed ustreamer version $CURRUSTREAM >= deb package version $USTREAMVER."
+      echo "-> Installed ustreamer version $CURRUSTREAM is newer than deb package version $USTREAMVER."
 
       ### remove ustreamer-[32|64]bit from install command
       INSTALL=$( echo $INSTALLCMD | sed "s/ustreamer-$BITS//g" )
@@ -519,7 +523,7 @@ show-commands() {
     ### added on 07/22/22 -- install janus package if none exists already
     CURRJANUS=$( /usr/bin/janus -V | tail -1 | cut -d' ' -f2 )
     if [[ "$CURRJANUS" != "$JANUSVER" ]]; then
-      echo "-> Installed janus version $CURRJANUS >= deb package version $JANUSVER."
+      echo "-> Installed janus version $CURRJANUS is newer than deb package version $JANUSVER."
 
       ### remove janus-[32|64]bit from install command
       INSTALL=$( echo $INSTALLCMD | sed "s/janus-$BITS//g" )
@@ -527,16 +531,16 @@ show-commands() {
     fi
 
     ### added on 07/22/22
-    if [[ "$CURRPLATFORM" != "$platform" ]]; then
-      echo "-> Platform change detected."
-      RMPKGS="${CURRPLATFORM}"
+    if [[ "$CURROLED" != " " && "$CURROLED" != "$oled " ]]; then
+      echo "-> Oled change detected."
+      RMPKGS="${CURROLED}"
     else
       RMPKGS=""
     fi
 
-    if [[ "$CURROLED" != "" && "$CURROLED" != "$oled" ]]; then
-      echo "-> Oled change detected."
-      RMPKGS="${RMPKGS} ${CURROLED}"
+    if [[ "$CURRPLATFORM" != "$platform" ]]; then
+      echo "-> Platform change detected."
+      RMPKGS="${CURRPLATFORM} ${RMPKGS}"
     fi
 
     ACTION="reinstall/change"
@@ -558,9 +562,9 @@ show-commands() {
     REMOVECMD=""
   fi
 
-  printf "\n${INSTALLCMD}\n"
+  printf "\n${INSTALLCMD}\n"     ### show install command
 
-  if [[ ${f_flag} -eq 1 ]]; then
+  if [[ ${f_flag} -eq 1 ]]; then ### perform comamnds if -f option is used
     CALL are-you-sure
     ${REMOVECMD}
     ${INSTALLCMD}
