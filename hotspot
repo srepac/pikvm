@@ -101,7 +101,7 @@ FSTAB
 fi
 
 # Backup original /etc/dnsmasq.conf
-if [ ! -e /etc/dnsmas.conf.orig ]; then cp /etc/dnsmasq.conf /etc/dnsmasq.conf.orig; fi
+if [ ! -e /etc/dnsmasq.conf.orig ]; then cp /etc/dnsmasq.conf /etc/dnsmasq.conf.orig; fi
 
 ### Create custom /etc/dnsmasq.conf file
 if [[ $( netstat -nap | grep :53\ | grep -v dnsmasq | wc -l ) -eq 0 ]]; then
