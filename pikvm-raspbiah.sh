@@ -12,8 +12,8 @@ deb [trusted=yes] https://kvmnerds.com/debian /
 #  2. Sets up /boot/config.txt (proper gpu_mem based on board) and /etc/modules based on platform chosen.
 #  3. Shows you command to install and will even run the install if -f option is passed in.
 ###
-VERSION="1.9"
-: ' As of 20220722 1545 PDT '
+VERSION="2.1"
+: ' As of 20221215 2030 PDT '
 # CHANGELOG:
 # 1.0  20220410  created script
 # 1.1  20220411  oled package (128x32 normal, 128x32 flipped 180 degrees, or 128x64)
@@ -25,6 +25,8 @@ VERSION="1.9"
 # 1.7  20220721  error checking to only allow debian and raspbian -- moved ubuntu to unsupported
 # 1.8  20220722  allow changing platforms/oled by removing old and installing new platform/oled
 # 1.9  20220722  don't clobber working ustreamer/janus
+# 2.0  20221124  only install libraspberrypi-dev and python3-spidev for Raspberry boards (add kvmd running check)
+# 2.1  20221215  pip3 install -U Pillow
 ###
 
 usage() {
@@ -38,6 +40,12 @@ error-checking() {
   if [[ "$WHOAMI" != "root" ]]; then
     echo "$WHOAMI, you must be root to run this."
     exit 1
+  fi
+
+  ### if kvmd is already running, then exit script gracefully
+  if [[ $( systemctl status kvmd | grep Active | grep -c running ) -eq 1 ]]; then
+    echo "KVMD is already running successfully.  Aborting script."
+    exit 0
   fi
 
   case $1 in
@@ -73,6 +81,7 @@ error-checking() {
     5.15|5.16|5.17|5.18|5.19|5.20) printf "+ Kernel version $( uname -r ) ... OK\n";;
     *) printf "Kernel version $( uname -r ).  Please upgrade to 5.15.x or higher.  Exiting.\n"; exit 1;;
   esac
+
 } # end error-checking
 
 
@@ -91,7 +100,8 @@ initialize() {
   if [ ! -e /tmp/pacmanquery ]; then
     if [ ! -e /usr/local/bin/pikvm-info ]; then
       wget -O /usr/local/bin/pikvm-info https://kvmnerds.com/PiKVM/pikvm-info 2> /dev/null
-      chmod +x /usr/local/bin/pikvm-info
+      wget -O /usr/local/bin/pistat https://kvmnerds.com/PiKVM/pistat 2> /dev/null
+      chmod +x /usr/local/bin/pikvm-info /usr/local/bin/pistat
     fi
     /usr/local/bin/pikvm-info > /dev/null 2>&1
     #/bin/rm -f /usr/local/bin/pikvm-info
@@ -594,7 +604,8 @@ otg-devices() {  # create otg devices
 
 fix-pillow() {
   apt install -y python3-pip > /dev/null
-  pip3 uninstall Pillow
+  ### required to uninstall old Pillow and update to newest Pillow
+  pip3 install -U Pillow
 } # end fix python pillow
 
 
@@ -612,6 +623,13 @@ CALL() {  ### show banner and run function passed in
   $1
 } #
 
+install-raspi-pkgs() {
+  ### install these two packages only if it's a raspberry pi board
+  if [[ $( pistat | grep -c Raspberry ) -eq 1 ]]; then
+    apt install -y libraspberrypi-dev python3-spidev 2> /dev/null
+  fi
+}
+
 
 
 ### MAIN STARTS HERE ###
@@ -620,6 +638,7 @@ if [ -e /usr/local/bin/rw ]; then rw; fi
 error-checking $@
 CALL get-packages
 CALL initialize
+CALL install-raspi-pkgs
 CALL get-installed
 CALL get-platform
 CALL boot-files
