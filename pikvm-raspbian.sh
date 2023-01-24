@@ -605,6 +605,7 @@ otg-devices() {  # create otg devices
 fix-pillow() {
   apt install -y python3-pip > /dev/null
   ### required to uninstall old Pillow and update to newest Pillow
+  pip3 uninstall Pillow
   pip3 install -U Pillow
 } # end fix python pillow
 
