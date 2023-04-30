@@ -531,7 +531,7 @@ build-ustreamer() {
         make WITH_OMX=1 WITH_GPIO=1 WITH_SETPROCTITLE=1 WITH_SYSTEMD=1
       fi
       ;;
-    5.15|5.16|5.17|5.18|5.19|5.20)
+    5.15|5.16|5.17|5.18|5.19|5.20|6.0|6.1|6.2)
       # Download ustreamer 5.x source and build it
       ### ustreamer 5.x uses different method to perform hardware encoding (relies on kernel 5.15)
 
