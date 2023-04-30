@@ -78,7 +78,7 @@ error-checking() {
 
   KERNELVER=$( uname -r | cut -d'.' -f1,2 )
   case "$KERNELVER" in
-    5.15|5.16|5.17|5.18|5.19|5.20) printf "+ Kernel version $( uname -r ) ... OK\n";;
+    5.15|5.16|5.17|5.18|5.19|5.20|6.0|6.1|6.2) printf "+ Kernel version $( uname -r ) ... OK\n";;
     *) printf "Kernel version $( uname -r ).  Please upgrade to 5.15.x or higher.  Exiting.\n"; exit 1;;
   esac
 
