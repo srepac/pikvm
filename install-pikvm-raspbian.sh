@@ -13,8 +13,8 @@
 '
 # NOTE:  This was tested on a new install of raspbian desktop and lite versions, but should also work on an existing install.
 #
-# Last change 20220723 0745 PDT
-VER=5.5
+# Last change 20230524 2115 PDT
+VER=5.6
 #
 # Changelog:
 # 1.0   from August 2021
@@ -58,6 +58,7 @@ VER=5.5
 # 5.3   07/18/22 - fix ttyd not compiling for zerow
 # 5.4   07/21/22 - consolidate apt install dependencies into one line; note: python dependencies are still one at a time
 # 5.5   07/23/22 - consolidate installing all python dependencies into one line
+# 5.6   05/24/23 - added override entry to fix the Invalid value '' for key 'kvmd/server/unix': None argument error
 
 set +x
 # Added on 03/06/22 -- check to make sure user is running the script as root.
@@ -132,6 +133,8 @@ kvmd:
             - "--slowdown"      # for usb dongle (so target doesn't have to reboot)
         resolution:
             default: 1280x720
+    server:
+        unix: /run/kvmd/kvmd.sock
 USBOVERRIDE
 
     else
@@ -147,6 +150,8 @@ kvmd:
         forever: true
         cmd_append:
             - "--slowdown"      # so target doesn't have to reboot
+    server:
+        unix: /run/kvmd/kvmd.sock
 CSIOVERRIDE
 
       if [[ $KERNELVER == "5.10" && ( $( uname -m ) == "aarch64" || $( grep -i codename /etc/os-release | cut -d'"' -f2 ) == "bullseye" ) ]]; then
@@ -180,13 +185,10 @@ install-python-packages() {
 
   for i in aiofiles aiohttp appdirs asn1crypto async-timeout bottle cffi chardet click colorama cryptography dateutil dbus hidapi idna libgpiod marshmallow more-itertools multidict netifaces packaging passlib pillow ply psutil pycparser pyelftools pyghmi pygments pyparsing requests semantic-version serial setproctitle setuptools six spidev systemd tabulate urllib3 wrapt xlib yaml yarl serial-asyncio
   do
-    ### setup list of packages to install (one after another)
-    PYPKGS="$PYPKGS python3-$i"
+    ### install each python3 package one at a time
+    echo "apt-get install -y python3-$i"
+    apt-get install -y python3-$i > /dev/null
   done
-
-  ### install all of them at once instead of one at a time
-  echo "apt-get install -y $PYPKGS"
-  apt-get install -y $PYPKGS > /dev/null
 } # end install python-packages
 
 otg-devices() {
@@ -435,9 +437,15 @@ install-kvmd-pkgs() {
   INSTLOG="${KVMDCACHE}/installed_ver.txt"; rm -f $INSTLOG
   date > $INSTLOG
 
+  # Check for the latest kvmd version in github
+  LATESTKVMD="/tmp/kvmd.version"; /bin/rm -f $LATESTKVMD
+  wget -O $LATESTKVMD https://github.com/pikvm/kvmd/raw/master/kvmd/__init__.py 2> /dev/null
+
   case $PYTHONVER in
     "3.7"|"3.9") KVMDVER="3.47";;
-    "3.10") KVMDVER="3.121";;  ### change to use most current version from pikvm github
+    "3.10") ### change to use most current version from pikvm github
+            KVMDVER=$( grep __version__ $LATESTKVMD | awk -F\" '{print $2}' )
+            ;;
     *) exit 1;;
   esac
 
@@ -510,8 +518,8 @@ enable-kvmd-svcs() {
 build-ustreamer() {
   printf "\n\n-> Building ustreamer\n\n"
   # Install packages needed for building ustreamer source
-  echo "apt install -y build-essential libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev libsystemd-dev"
-  apt install -y build-essential libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev libsystemd-dev > /dev/null
+  echo "apt install -y build-essential libssl-dev libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev libsystemd-dev"
+  apt install -y build-essential libssl-dev libevent-dev libjpeg-dev libbsd-dev libraspberrypi-dev libgpiod-dev libsystemd-dev > /dev/null
 
   KERNELVER=$( uname -r | cut -d'.' -f1,2 )
   case "$KERNELVER" in
@@ -708,7 +716,8 @@ fix-nginx-symlinks() {
         ln -s /usr/lib/python3.9/site-packages/kvmd* ${PYTHONDIR}
         ;;
       "3.10")
-        ln -s /usr/lib/python3.10/site-packages/kvmd* ${PYTHONDIR}
+        #ln -s /usr/lib/python3.10/site-packages/kvmd* ${PYTHONDIR}    # kvmd 3.216 and older
+        ln -s /usr/lib/python3.11/site-packages/kvmd* ${PYTHONDIR}     # kvmd 3.217 and higher
         ;;
     esac
   fi
