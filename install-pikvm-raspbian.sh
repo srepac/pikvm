@@ -443,7 +443,7 @@ install-kvmd-pkgs() {
 
   case $PYTHONVER in
     "3.7"|"3.9") KVMDVER="3.47";;
-    "3.10") ### change to use most current version from pikvm github
+    "3.10"|"3.11") ### change to use most current version from pikvm github
             KVMDVER=$( grep __version__ $LATESTKVMD | awk -F\" '{print $2}' )
             ;;
     *) exit 1;;
