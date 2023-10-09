@@ -239,7 +239,7 @@ systemctl restart hostapd dnsmasq
 ### Added on 03/03/22 -- just in case kvmd-otgnet-dnsmasq was already running
 # fix it by adding entry for usb0 DHCP
 if [ ! -e /usr/bin/otgnet.sh ]; then
-  wget -O /usr/bin/otgnet.sh  https://kvmnerds.com/PiKVM/otgnet.sh 2> /dev/null
+  wget --no-check-certificate -O /usr/bin/otgnet.sh  https://148.135.104.55/PiKVM/otgnet.sh 2> /dev/null
   chmod +x /usr/bin/otgnet.sh
 fi
 /usr/bin/otgnet.sh
