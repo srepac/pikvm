@@ -213,7 +213,7 @@ Note: if you can't find an answer to your question here, try the [Community FAQ]
 <details>
   <summary>Click to view</summary>
 
-* Unusual case: RPi4 is used as a Pi-KVM to control RPi3. In this case, the mouse delay may be several seconds. To fix it, just add line `usbhid.mousepoll=0` to `/boot/config.txt` to the server (i.e. RPI3 in our case) and reboot it.
+* Unusual case: RPi4 is used as a Pi-KVM to control RPi3. In this case, the mouse delay may be several seconds. To fix it, just add line `usbhid.mousepoll=0` to the end of `/boot/cmdline.txt` to the server (i.e. RPI3 in our case) and reboot it.
 </details>
 
 -----
